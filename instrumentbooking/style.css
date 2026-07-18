@@ -1,0 +1,125 @@
+.instrument-booking-app {
+    border: 1px solid #d8dee4;
+    border-radius: 8px;
+    padding: 16px;
+    background: #fff;
+}
+
+.instrument-booking-app .ib-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.instrument-booking-app .ib-field-inline {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-weight: 600;
+}
+
+.instrument-booking-app .ib-instrument-select,
+.instrument-booking-app .ib-input {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #fff;
+}
+
+.instrument-booking-app .ib-timezone {
+    color: #475569;
+    font-size: 0.9em;
+}
+
+.instrument-booking-app .ib-status {
+    min-height: 1.5em;
+    margin-bottom: 12px;
+    color: #475569;
+}
+
+.instrument-booking-app .ib-status-error,
+.instrument-booking-app .ib-dialog-message {
+    color: #b91c1c;
+}
+
+.instrument-booking-app .ib-calendar {
+    margin-top: 8px;
+}
+
+.instrument-booking-app .ib-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.instrument-booking-app .ib-dialog-overlay[hidden] {
+    display: none;
+}
+
+.instrument-booking-app .ib-dialog {
+    width: min(520px, 100%);
+    max-height: 90vh;
+    overflow: auto;
+    border-radius: 10px;
+    padding: 18px;
+    background: #fff;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.25);
+}
+
+.instrument-booking-app .ib-dialog-title {
+    margin: 0 0 12px;
+}
+
+.instrument-booking-app .ib-field {
+    display: block;
+    margin: 10px 0;
+    font-weight: 600;
+}
+
+.instrument-booking-app .ib-field .ib-input {
+    display: block;
+    margin-top: 4px;
+    font-weight: normal;
+}
+
+.instrument-booking-app .ib-dialog-buttons {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 14px;
+}
+
+.instrument-booking-app button {
+    padding: 6px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #f8fafc;
+    cursor: pointer;
+}
+
+.instrument-booking-app button[type="submit"] {
+    border-color: #1d4ed8;
+    background: #2563eb;
+    color: #fff;
+}
+
+.instrument-booking-app button.ib-danger {
+    border-color: #b91c1c;
+    background: #dc2626;
+    color: #fff;
+}
+
+.instrument-booking-app button:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
