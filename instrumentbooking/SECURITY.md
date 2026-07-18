@@ -1,0 +1,50 @@
+# Security Notes
+
+The plugin is designed for a small internal DokuWiki installation and relies on DokuWiki authentication and group membership.
+
+## Preserved Controls
+
+- DokuWiki login is required for all AJAX operations.
+- Usernames and groups are read from the DokuWiki session, never from the request body.
+- Write operations require DokuWiki CSRF validation.
+- SQL uses PDO prepared statements.
+- SQLite writes use `BEGIN IMMEDIATE` transactions for conflict checks and updates.
+- SQLite busy/locked errors are mapped to `DATABASE_BUSY`.
+- Titles and notes have length limits and are stripped of HTML.
+- Frontend rendering uses text nodes for user-controlled fields.
+- Ordinary users only see private details for their own bookings.
+- Other users' events are returned as occupied blocks without owner, title, note, or group data.
+- The SQLite database is intended to live outside the DokuWiki web root.
+- `bin/` and `db/` are not public API paths and should not be web-accessible directly.
+- Production JSON errors do not include SQL, stack traces, database paths, server paths, PHP details, or session data.
+
+## Server Hardening
+
+Configure the web server to deny direct access to plugin internals:
+
+```apache
+<Directory "/var/www/dokuwiki/lib/plugins/instrumentbooking/bin">
+    Require all denied
+</Directory>
+<Directory "/var/www/dokuwiki/lib/plugins/instrumentbooking/db">
+    Require all denied
+</Directory>
+```
+
+For nginx:
+
+```nginx
+location ~ ^/lib/plugins/instrumentbooking/(bin|db)/ {
+    deny all;
+}
+```
+
+Keep `conf/instrumentbooking.local.php` protected by normal DokuWiki `conf/` access rules.
+
+## SQLite Storage
+
+Use local disk only. If the database target is NFS, SMB/CIFS, or another distributed filesystem, do not use SQLite for this plugin. Move the database to local `/var/lib/` storage or replace the persistence layer with PostgreSQL.
+
+## Reporting Issues
+
+Report security issues to the local DokuWiki administrator responsible for this installation. Include the plugin version, DokuWiki version, PHP version, and a minimal reproduction without private booking data.
