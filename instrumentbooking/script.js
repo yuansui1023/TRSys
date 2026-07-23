@@ -194,7 +194,7 @@
             height: '100%',
             handleWindowResize: true,
             stickyHeaderDates: true,
-            scrollTime: '00:00:00',
+            scrollTime: '09:00:00',
             scrollTimeReset: false,
             slotMinTime: '00:00:00',
             slotMaxTime: '24:00:00',
@@ -311,15 +311,18 @@
         return body.closest('.fc-scroller');
     }
 
-    function scrollTimeSlotsToBottom(root) {
+    function fitInitialTwelveHourWindow(root) {
         var scroller = findTimegridBodyScroller(root);
-        if (!scroller || scroller.clientHeight <= 0) {
+        var calendarEl = root.querySelector('.ib-calendar');
+        if (!scroller || !calendarEl || scroller.clientHeight <= 0) {
             return false;
         }
-        if (scroller.scrollHeight <= scroller.clientHeight) {
+        var visibleHalfHourSlots = 24;
+        var slotHeight = scroller.clientHeight / visibleHalfHourSlots;
+        if (!Number.isFinite(slotHeight) || slotHeight <= 0) {
             return false;
         }
-        scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+        calendarEl.style.setProperty('--ib-time-slot-height', slotHeight.toFixed(3) + 'px');
         return true;
     }
 
@@ -327,9 +330,11 @@
         if (state.timeSlotScrollInitialized) {
             return true;
         }
-        if (!scrollTimeSlotsToBottom(root)) {
+        if (!state.calendar || !fitInitialTwelveHourWindow(root)) {
             return false;
         }
+        state.calendar.updateSize();
+        state.calendar.scrollToTime('09:00:00');
         state.timeSlotScrollInitialized = true;
         return true;
     }
@@ -1454,11 +1459,25 @@
                 !canEdit
             );
         } else if (!isCreate && !canEdit) {
-            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner can modify this booking.', true);
+            setDialogMessage(overlay, readOnlyBookingMessage(eventData, Date.now()), true);
         } else {
             setDialogMessage(overlay, '', false);
         }
         overlay.hidden = false;
+    }
+
+    function readOnlyBookingMessage(eventData, nowTimestamp) {
+        var startTimestamp = Date.parse(eventData.start || '');
+        var endTimestamp = Date.parse(eventData.end || '');
+        var viewOnlyMessage = 'You can only view the complete reservation details.';
+
+        if (Number.isFinite(endTimestamp) && endTimestamp <= nowTimestamp) {
+            return viewOnlyMessage;
+        }
+        if (Number.isFinite(startTimestamp) && startTimestamp > nowTimestamp) {
+            return 'Only the owner can modify this booking.';
+        }
+        return viewOnlyMessage;
     }
 
     function submitDialog(state, overlay) {

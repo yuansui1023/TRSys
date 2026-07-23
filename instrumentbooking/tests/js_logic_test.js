@@ -120,6 +120,44 @@ check('Cancel closes confirm without delete API in handler', function () {
     assert.ok(/cancel\.addEventListener\('click', function \(\) \{\s*if \(!state\.saving\) \{\s*confirm\.hidden = true;/m.test(script));
 });
 
+check('read-only booking messages distinguish completed and future bookings', function () {
+    var helperStart = script.indexOf('function readOnlyBookingMessage');
+    var helperEnd = script.indexOf('function submitDialog', helperStart);
+    assert.ok(helperStart !== -1 && helperEnd > helperStart);
+    var helperSource = script.slice(helperStart, helperEnd);
+    var readOnlyBookingMessage = new Function(
+        helperSource + '\nreturn readOnlyBookingMessage;'
+    )();
+    var now = Date.parse('2026-07-23T12:00:00-07:00');
+
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T09:00:00-07:00',
+            end: '2026-07-23T10:00:00-07:00'
+        }, now),
+        'You can only view the complete reservation details.'
+    );
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T13:00:00-07:00',
+            end: '2026-07-23T14:00:00-07:00'
+        }, now),
+        'Only the owner can modify this booking.'
+    );
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T11:30:00-07:00',
+            end: '2026-07-23T12:30:00-07:00'
+        }, now),
+        'You can only view the complete reservation details.'
+    );
+    assert.ok(
+        script.indexOf(
+            'You can view the complete reservation details. Only the owner can modify this booking.'
+        ) === -1
+    );
+});
+
 check('nowIndicator disabled and custom week line helpers exist', function () {
     assert.ok(script.indexOf('nowIndicator: false') !== -1);
     assert.ok(script.indexOf('function classifyWeekNowLineMode') !== -1);
@@ -190,9 +228,15 @@ check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scr
     assert.ok(css.indexOf('.ib-portal .ib-delete-confirm-overlay') !== -1);
     assert.ok(css.indexOf('pointer-events: auto') !== -1);
     assert.ok(script.indexOf("height: '100%'") !== -1);
+    assert.ok(script.indexOf("scrollTime: '09:00:00'") !== -1);
     assert.ok(script.indexOf('scrollTimeReset: false') !== -1);
     assert.ok(script.indexOf('scheduleInitialTimeSlotScroll') !== -1);
     assert.ok(script.indexOf('timeSlotScrollInitialized') !== -1);
+    assert.ok(script.indexOf('fitInitialTwelveHourWindow') !== -1);
+    assert.ok(script.indexOf('visibleHalfHourSlots = 24') !== -1);
+    assert.ok(script.indexOf("scrollToTime('09:00:00')") !== -1);
+    assert.ok(script.indexOf('scrollTimeSlotsToBottom') === -1);
+    assert.ok(css.indexOf('--ib-time-slot-height') !== -1);
     assert.ok(script.indexOf("slotDuration: '00:30:00'") !== -1);
     assert.ok(script.indexOf("slotMaxTime: '24:00:00'") !== -1);
 });
@@ -212,6 +256,16 @@ check('top nav order is Settings, Return, instrument selector without a visible 
     assert.ok(settingsPos !== -1 && returnPos !== -1 && instrumentPos !== -1);
     assert.ok(settingsPos < returnPos);
     assert.ok(returnPos < instrumentPos);
+});
+
+check('calendar navigation is compact and desktop tool selector is four times wider', function () {
+    var stylePath = path.join(__dirname, '..', 'style.css');
+    var css = fs.readFileSync(stylePath, 'utf8');
+    assert.ok(/\.fc-prev-button,[\s\S]*?\.fc-next-button\s*\{\s*width:\s*56px;/m.test(css));
+    assert.ok(/\.fc-today-button\s*\{\s*width:\s*84px;/m.test(css));
+    assert.ok(/\.ib-instrument-select\s*\{[\s\S]*?width:\s*528px;/m.test(css));
+    assert.ok(/\.ib-instrument-select\s*\{[\s\S]*?min-width:\s*528px;/m.test(css));
+    assert.ok(/@media \(max-width: 768px\)[\s\S]*?\.ib-instrument-select\s*\{[\s\S]*?max-width:\s*none;/m.test(css));
 });
 
 console.log('js_logic_test: ' + (failures === 0 ? 'ok' : failures + ' failures'));
