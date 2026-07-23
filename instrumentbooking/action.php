@@ -25,7 +25,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
         try {
             $operation = $this->queryParam('operation');
             if ($operation === '') {
-                throw new InstrumentBookingException('INVALID_INPUT', '缺少操作类型。', 400);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The operation is missing.', 400);
             }
 
             $helper = new helper_plugin_instrumentbooking();
@@ -57,7 +57,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
                 'ok' => false,
                 'error' => [
                     'code' => 'INTERNAL_ERROR',
-                    'message' => '服务器处理预约请求时出错，请稍后重试或联系管理员。',
+                    'message' => 'The server could not process the booking request. Please try again later or contact an administrator.',
                 ],
             ], 500);
         }
@@ -87,7 +87,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
             return $helper->cancelEvent($config, $pdo, $context, $input, $reloadConfig);
         }
 
-        throw new InstrumentBookingException('INVALID_INPUT', '未知操作类型。', 400);
+        throw new InstrumentBookingException('INVALID_INPUT', 'Unknown operation.', 400);
     }
 
     private function currentContext(): array
@@ -118,14 +118,14 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
     {
         $actual = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
         if ($actual !== $method) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'HTTP 方法无效。', 405);
+            throw new InstrumentBookingException('INVALID_INPUT', 'Invalid HTTP method.', 405);
         }
     }
 
     private function requireCsrfToken(): void
     {
         if (!function_exists('checkSecurityToken') || !checkSecurityToken()) {
-            throw new InstrumentBookingException('CSRF_FAILED', '安全令牌无效，请刷新页面后重试。', 403);
+            throw new InstrumentBookingException('CSRF_FAILED', 'The security token is invalid. Please refresh the page and try again.', 403);
         }
     }
 
@@ -133,17 +133,17 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
     {
         $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
         if (stripos($contentType, 'application/json') === false) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求内容类型必须是 application/json。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The request content type must be application/json.', 400);
         }
 
         $raw = file_get_contents('php://input');
         if (!is_string($raw) || $raw === '' || strlen($raw) > 32768) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求体无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The request body is invalid.', 400);
         }
 
         $decoded = json_decode($raw, true);
         if (!is_array($decoded) || json_last_error() !== JSON_ERROR_NONE) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'JSON 请求体格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The JSON request body is invalid.', 400);
         }
         return $decoded;
     }

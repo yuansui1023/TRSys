@@ -73,12 +73,12 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $path = $path ?: $this->defaultConfigPath();
         if (!is_file($path)) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约系统配置文件不存在。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking configuration file does not exist.', 500);
         }
 
         $config = require $path;
         if (!is_array($config)) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约系统配置文件格式无效。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking configuration file is invalid.', 500);
         }
 
         return $this->validateConfig($config);
@@ -94,39 +94,39 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         ];
 
         if (empty($config['database_path']) || !is_string($config['database_path'])) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约数据库路径未配置。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking database path is not configured.', 500);
         }
         if (empty($config['timezone']) || !is_string($config['timezone'])) {
-            throw new InstrumentBookingException('INVALID_INPUT', '实验室时区未配置。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The lab timezone is not configured.', 500);
         }
         try {
             new DateTimeZone($config['timezone']);
         } catch (Throwable $e) {
-            throw new InstrumentBookingException('INVALID_INPUT', '实验室时区配置无效。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The lab timezone is invalid.', 500);
         }
 
         if (!is_array($config['manager_groups']) || !is_array($config['instruments'])) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约系统配置格式无效。', 500);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking system configuration is invalid.', 500);
         }
 
         foreach ($config['instruments'] as $code => $instrument) {
             if (!is_string($code) || !preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/i', $code)) {
-                throw new InstrumentBookingException('INVALID_INPUT', '仪器代码配置无效。', 500);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument code configuration is invalid.', 500);
             }
             if (!is_array($instrument)) {
-                throw new InstrumentBookingException('INVALID_INPUT', '仪器配置格式无效。', 500);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument configuration is invalid.', 500);
             }
             $required = ['name', 'description', 'allowed_groups', 'min_minutes', 'max_minutes', 'buffer_before_minutes', 'buffer_after_minutes', 'color', 'enabled'];
             foreach ($required as $key) {
                 if (!array_key_exists($key, $instrument)) {
-                    throw new InstrumentBookingException('INVALID_INPUT', '仪器配置缺少必要字段。', 500);
+                    throw new InstrumentBookingException('INVALID_INPUT', 'The instrument configuration is missing required fields.', 500);
                 }
             }
             if (!is_array($instrument['allowed_groups']) || (int)$instrument['min_minutes'] < 1 || (int)$instrument['max_minutes'] < (int)$instrument['min_minutes']) {
-                throw new InstrumentBookingException('INVALID_INPUT', '仪器权限或时间限制配置无效。', 500);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument group or time limit configuration is invalid.', 500);
             }
             if ((int)$instrument['buffer_before_minutes'] < 0 || (int)$instrument['buffer_after_minutes'] < 0) {
-                throw new InstrumentBookingException('INVALID_INPUT', '仪器缓冲时间配置无效。', 500);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument buffer configuration is invalid.', 500);
             }
         }
 
@@ -139,7 +139,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $path = $config['database_path'];
         if (!is_file($path) && !$allowCreate) {
-            throw new InstrumentBookingException('INTERNAL_ERROR', '预约数据库尚未初始化，请联系管理员。', 500);
+            throw new InstrumentBookingException('INTERNAL_ERROR', 'The booking database has not been initialized. Contact an administrator.', 500);
         }
 
         $pdo = new PDO(
@@ -191,13 +191,13 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $instrumentCode = $this->requireInstrumentCode($input);
         $instrument = $this->requireInstrument($config, $instrumentCode, false);
         if (!$this->canViewInstrument($config, $instrument, $context)) {
-            throw new InstrumentBookingException('PERMISSION_DENIED', '你没有查看该仪器预约的权限。', 403);
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'You do not have permission to view bookings for this instrument.', 403);
         }
 
         $start = $this->parseIsoToTimestamp($this->requireString($input, 'start', 64));
         $end = $this->parseIsoToTimestamp($this->requireString($input, 'end', 64));
         if ($start >= $end) {
-            throw new InstrumentBookingException('INVALID_INPUT', '结束时间必须晚于开始时间。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The end time must be later than the start time.', 400);
         }
 
         $stmt = $pdo->prepare(
@@ -232,7 +232,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
             $requestId = strtolower($this->requireString($input, 'requestId', 64));
             if (!preg_match(self::UUID_PATTERN, $requestId)) {
-                throw new InstrumentBookingException('INVALID_INPUT', '请求 ID 格式无效。', 400);
+                throw new InstrumentBookingException('INVALID_INPUT', 'The request ID is invalid.', 400);
             }
 
             $existing = $this->findByRequestId($pdo, $requestId);
@@ -269,7 +269,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':event_type' => $eventType,
                 ':owner_user' => $context['user'],
                 ':title' => $this->cleanText($this->requireString($input, 'title', 120), 120),
-                ':note' => $this->cleanText($this->optionalString($input, 'note', 1000), 1000),
+                ':note' => $this->cleanText(
+                    $this->optionalString($input, 'note', 1000),
+                    1000,
+                    true
+                ),
                 ':start_ts' => $start,
                 ':end_ts' => $end,
                 ':blocked_start_ts' => $blockedStart,
@@ -284,7 +288,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
-                throw new InstrumentBookingException('DATABASE_BUSY', '预约数据库正忙，请稍后重试。', 503);
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
         }
@@ -302,17 +306,17 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $eventId = $this->requirePositiveInt($input, 'eventId');
             $existing = $this->findById($pdo, $eventId);
             if ($existing === null || $existing['cancelled_at'] !== null) {
-                throw new InstrumentBookingException('EVENT_NOT_FOUND', '预约事件不存在。', 404);
+                throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
             }
             if (!$this->canEditEvent($config, $existing, $context)) {
-                throw new InstrumentBookingException('EVENT_NOT_EDITABLE', '该预约不能修改。', 403);
+                throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be edited.', 403);
             }
 
             $instrumentCode = $this->requireInstrumentCode($input + ['instrumentCode' => $existing['instrument_code']]);
             $instrument = $this->requireInstrument($config, $instrumentCode, true);
             $eventType = array_key_exists('eventType', $input) ? $this->optionalEventType($input) : $existing['event_type'];
             if ($eventType === 'block' && !$this->isManager($config, $context)) {
-                throw new InstrumentBookingException('PERMISSION_DENIED', '只有管理员可以创建维护或停机占用。', 403);
+                throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
             }
             if ($eventType === 'booking' && !$this->isManager($config, $context)) {
                 $this->assertInstrumentBookingAccess($instrument, $context);
@@ -338,7 +342,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':instrument_code' => $instrumentCode,
                 ':event_type' => $eventType,
                 ':title' => $this->cleanText($this->requireString($input, 'title', 120), 120),
-                ':note' => $this->cleanText($this->optionalString($input, 'note', 1000), 1000),
+                ':note' => $this->cleanText(
+                    $this->optionalString($input, 'note', 1000),
+                    1000,
+                    true
+                ),
                 ':start_ts' => $start,
                 ':end_ts' => $end,
                 ':blocked_start_ts' => $blockedStart,
@@ -353,7 +361,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
-                throw new InstrumentBookingException('DATABASE_BUSY', '预约数据库正忙，请稍后重试。', 503);
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
         }
@@ -371,10 +379,10 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $eventId = $this->requirePositiveInt($input, 'eventId');
             $event = $this->findById($pdo, $eventId);
             if ($event === null || $event['cancelled_at'] !== null) {
-                throw new InstrumentBookingException('EVENT_NOT_FOUND', '预约事件不存在。', 404);
+                throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
             }
             if (!$this->canCancelEvent($config, $event, $context)) {
-                throw new InstrumentBookingException('EVENT_NOT_EDITABLE', '该预约不能取消。', 403);
+                throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be cancelled.', 403);
             }
 
             $stmt = $pdo->prepare(
@@ -396,7 +404,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
-                throw new InstrumentBookingException('DATABASE_BUSY', '预约数据库正忙，请稍后重试。', 503);
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
         }
@@ -448,7 +456,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
-                throw new InstrumentBookingException('DATABASE_BUSY', '预约数据库正忙，请稍后重试。', 503);
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
         }
@@ -489,11 +497,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     public function applySchema(PDO $pdo, string $schemaPath): void
     {
         if (!is_file($schemaPath)) {
-            throw new InstrumentBookingException('INTERNAL_ERROR', '数据库 schema 文件不存在。', 500);
+            throw new InstrumentBookingException('INTERNAL_ERROR', 'The database schema file does not exist.', 500);
         }
         $sql = file_get_contents($schemaPath);
         if ($sql === false || trim($sql) === '') {
-            throw new InstrumentBookingException('INTERNAL_ERROR', '数据库 schema 文件无法读取。', 500);
+            throw new InstrumentBookingException('INTERNAL_ERROR', 'The database schema file cannot be read.', 500);
         }
         $pdo->exec($sql);
     }
@@ -501,7 +509,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     public function requireAuthenticated(array $context): void
     {
         if (empty($context['user'])) {
-            throw new InstrumentBookingException('AUTH_REQUIRED', '请先登录 DokuWiki。', 401);
+            throw new InstrumentBookingException('AUTH_REQUIRED', 'Please log in to DokuWiki first.', 401);
         }
     }
 
@@ -524,7 +532,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         if ($eventType === 'block') {
             if (!$this->isManager($config, $context)) {
-                throw new InstrumentBookingException('PERMISSION_DENIED', '只有管理员可以创建维护或停机占用。', 403);
+                throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
             }
             return;
         }
@@ -537,7 +545,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function assertInstrumentBookingAccess(array $instrument, array $context): void
     {
         if (!$this->userHasInstrumentAccess($instrument, $context)) {
-            throw new InstrumentBookingException('PERMISSION_DENIED', '你没有预约该仪器的权限。', 403);
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'You do not have permission to book this instrument.', 403);
         }
     }
 
@@ -585,7 +593,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             'instrumentCode' => $event['instrument_code'],
             'start' => $this->formatIso((int)$event['start_ts'], $config['timezone']),
             'end' => $this->formatIso((int)$event['end_ts'], $config['timezone']),
-            'title' => $visible ? $event['title'] : '已占用',
+            'title' => $visible ? $event['title'] : 'Reserved',
             'canEdit' => $this->canEditEvent($config, $event, $context),
             'canCancel' => $this->canCancelEvent($config, $event, $context),
         ];
@@ -605,17 +613,17 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $start = $this->parseIsoToTimestamp($this->requireString($input, 'start', 64));
         $end = $this->parseIsoToTimestamp($this->requireString($input, 'end', 64));
         if ($start >= $end) {
-            throw new InstrumentBookingException('INVALID_INPUT', '结束时间必须晚于开始时间。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The end time must be later than the start time.', 400);
         }
 
         $durationSeconds = $end - $start;
         $minSeconds = (int)$instrument['min_minutes'] * 60;
         $maxSeconds = (int)$instrument['max_minutes'] * 60;
         if ($durationSeconds < $minSeconds) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约时间短于该仪器允许的最短时长。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking is shorter than the minimum duration for this instrument.', 400);
         }
         if ($durationSeconds > $maxSeconds) {
-            throw new InstrumentBookingException('INVALID_INPUT', '预约时间超过该仪器允许的最长时长。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The booking exceeds the maximum duration for this instrument.', 400);
         }
 
         return [
@@ -629,12 +637,12 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function parseIsoToTimestamp(string $value): int
     {
         if (!preg_match('/(Z|[+-]\d{2}:\d{2})$/i', $value)) {
-            throw new InstrumentBookingException('INVALID_INPUT', '时间必须包含明确的时区偏移。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'Times must include an explicit timezone offset.', 400);
         }
         try {
             $dt = new DateTimeImmutable($value);
         } catch (Throwable $e) {
-            throw new InstrumentBookingException('INVALID_INPUT', '时间格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The time format is invalid.', 400);
         }
         return $dt->getTimestamp();
     }
@@ -668,7 +676,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $stmt = $pdo->prepare($sql);
         $stmt->execute($params);
         if ($stmt->fetch() !== false) {
-            throw new InstrumentBookingException('BOOKING_CONFLICT', '该时间段已被占用，请重新选择。', 409);
+            throw new InstrumentBookingException('BOOKING_CONFLICT', 'This time slot is already reserved. Please choose another time.', 409);
         }
     }
 
@@ -676,7 +684,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $code = $this->requireString($input, 'instrumentCode', 64);
         if (!preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/i', $code)) {
-            throw new InstrumentBookingException('INVALID_INPUT', '仪器代码格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The instrument code is invalid.', 400);
         }
         return $code;
     }
@@ -684,11 +692,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function requireInstrument(array $config, string $code, bool $mustBeEnabled): array
     {
         if (!isset($config['instruments'][$code])) {
-            throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', '仪器不存在。', 404);
+            throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', 'The instrument was not found.', 404);
         }
         $instrument = $config['instruments'][$code];
         if ($mustBeEnabled && !$instrument['enabled']) {
-            throw new InstrumentBookingException('INSTRUMENT_DISABLED', '该仪器当前不可预约。', 403);
+            throw new InstrumentBookingException('INSTRUMENT_DISABLED', 'This instrument is not currently available for booking.', 403);
         }
         return $instrument;
     }
@@ -697,7 +705,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $eventType = isset($input['eventType']) ? (string)$input['eventType'] : 'booking';
         if (!in_array($eventType, ['booking', 'block'], true)) {
-            throw new InstrumentBookingException('INVALID_INPUT', '事件类型无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The event type is invalid.', 400);
         }
         return $eventType;
     }
@@ -705,11 +713,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function requireString(array $input, string $key, int $maxLength): string
     {
         if (!array_key_exists($key, $input) || !is_string($input[$key])) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid format.', 400);
         }
         $value = trim($input[$key]);
         if ($value === '' || $this->textLength($value) > $maxLength) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段长度无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid length.', 400);
         }
         return $value;
     }
@@ -720,11 +728,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return '';
         }
         if (!is_string($input[$key])) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid format.', 400);
         }
         $value = trim($input[$key]);
         if ($this->textLength($value) > $maxLength) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段长度无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid length.', 400);
         }
         return $value;
     }
@@ -732,20 +740,20 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function requirePositiveInt(array $input, string $key): int
     {
         if (!array_key_exists($key, $input) || filter_var($input[$key], FILTER_VALIDATE_INT) === false) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid format.', 400);
         }
         $value = (int)$input[$key];
         if ($value < 1) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段格式无效。', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid format.', 400);
         }
         return $value;
     }
 
-    private function cleanText(string $value, int $maxLength): string
+    private function cleanText(string $value, int $maxLength, bool $allowEmpty = false): string
     {
         $value = trim(strip_tags($value));
-        if ($value === '' || $this->textLength($value) > $maxLength) {
-            throw new InstrumentBookingException('INVALID_INPUT', '请求字段长度无效。', 400);
+        if ((!$allowEmpty && $value === '') || $this->textLength($value) > $maxLength) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'A request field has an invalid length.', 400);
         }
         return $value;
     }
@@ -761,7 +769,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $pdo->exec('BEGIN IMMEDIATE');
         } catch (Throwable $e) {
             if ($this->isBusyException($e)) {
-                throw new InstrumentBookingException('DATABASE_BUSY', '预约数据库正忙，请稍后重试。', 503);
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
         }

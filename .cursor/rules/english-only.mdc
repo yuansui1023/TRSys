@@ -1,0 +1,10 @@
+---
+description: Keep project files and user-facing text in English
+alwaysApply: true
+---
+
+# English-Only Project Content
+
+- Write project files, comments, documentation, UI text, API messages, tests, and examples in English.
+- Do not introduce Chinese text or other non-English prose into the repository unless the user explicitly asks for localized content.
+- If existing non-English text is touched, translate it to English as part of the change.

@@ -1,3 +1,3 @@
 <?php
 
-$lang['config_path'] = '可选的 instrumentbooking.local.php 绝对路径。留空时使用 conf/instrumentbooking.local.php。';
+$lang['config_path'] = 'Optional absolute path to instrumentbooking.local.php. Leave empty to use conf/instrumentbooking.local.php.';
