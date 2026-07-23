@@ -357,6 +357,15 @@ Add subsequent administrators from **TRSys → Settings → Administrators**.
 Only existing DokuWiki users can be selected, and administrators are added one
 at a time.
 
+List the current TRSys administrators:
+
+```sh
+sudo -u www-data env DOKUWIKI_ROOT=/var/www/dokuwiki \
+  php /var/www/dokuwiki/lib/plugins/instrumentbooking/bin/admin.php \
+  list \
+  --config=/var/www/dokuwiki/conf/instrumentbooking.local.php
+```
+
 Revoke a non-final administrator from the server CLI:
 
 ```sh

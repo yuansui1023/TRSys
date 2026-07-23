@@ -6,14 +6,13 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
-require_once dirname(__DIR__) . '/helper.php';
-
 try {
     $args = array_values(array_slice($argv, 1));
     if ($args === [] || in_array($args[0], ['--help', '-h'], true)) {
         echo "Usage:\n";
         echo "  php bin/admin.php bootstrap <username> [--config=/path/to/instrumentbooking.local.php]\n";
         echo "  php bin/admin.php revoke <username> [--config=/path/to/instrumentbooking.local.php]\n";
+        echo "  php bin/admin.php list [--config=/path/to/instrumentbooking.local.php]\n";
         exit(0);
     }
 
@@ -32,17 +31,21 @@ try {
         throw new RuntimeException('Unknown option: ' . $arg);
     }
 
-    if (!in_array($command, ['bootstrap', 'revoke'], true)) {
+    if (!in_array($command, ['bootstrap', 'revoke', 'list'], true)) {
         throw new RuntimeException('Unknown command: ' . $command);
     }
-    if (!is_string($username) || trim($username) === '') {
+    if ($command !== 'list' && (!is_string($username) || trim($username) === '')) {
         throw new RuntimeException('Username is required.');
     }
+    if ($command === 'list' && $username !== null) {
+        throw new RuntimeException('The list command does not accept a username.');
+    }
 
-    if ($command === 'bootstrap') {
+    if (in_array($command, ['bootstrap', 'list'], true)) {
         load_dokuwiki_for_auth();
     }
 
+    require_once dirname(__DIR__) . '/helper.php';
     $helper = new helper_plugin_instrumentbooking();
     $envConfig = getenv('PLUGIN_CONFIG');
     if ($configPath === null && is_string($envConfig) && $envConfig !== '') {
@@ -55,6 +58,19 @@ try {
         $result = $helper->bootstrapPluginAdminCli($pdo, $username);
         echo "Bootstrapped first TRSys administrator: " . $result['username'] . "\n";
         echo "DokuWiki user accounts were not modified.\n";
+        exit(0);
+    }
+
+    if ($command === 'list') {
+        $admins = $helper->listPluginAdmins($pdo);
+        if ($admins === []) {
+            echo "No TRSys administrators configured.\n";
+            exit(0);
+        }
+        echo "TRSys administrators:\n";
+        foreach ($admins as $admin) {
+            echo "  " . $admin['username'] . "\n";
+        }
         exit(0);
     }
 

@@ -259,7 +259,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':added_at' => $now,
                 ':added_by' => (string)$context['user'],
             ]);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return [
                 'admin' => [
                     'username' => $username,
@@ -302,7 +302,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             $stmt = $pdo->prepare('DELETE FROM plugin_admins WHERE username = :username COLLATE NOCASE');
             $stmt->execute([':username' => $username]);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return [
                 'revoked' => true,
                 'username' => (string)$existing['username'],
@@ -351,7 +351,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':added_at' => $now,
                 ':added_by' => 'cli-bootstrap',
             ]);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return [
                 'bootstrapped' => true,
                 'username' => $username,
@@ -595,7 +595,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':updated_at' => $now,
             ]);
             $instrument = $this->findInstrument($pdo, $code);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return ['instrument' => $this->instrumentForResponse($instrument)];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
@@ -643,7 +643,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':code' => $code,
             ]);
             $instrument = $this->findInstrument($pdo, $code);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return ['instrument' => $this->instrumentForResponse($instrument)];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
@@ -721,7 +721,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             if ($deleteInstrument->rowCount() !== 1) {
                 throw new InstrumentBookingException('DELETE_FAILED', 'The instrument could not be deleted.', 500);
             }
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return [
                 'deleted' => true,
                 'instrumentCode' => $code,
@@ -812,7 +812,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
             $existing = $this->findByRequestId($pdo, $requestId);
             if ($existing !== []) {
-                $pdo->commit();
+                $this->commitImmediate($pdo);
                 return [
                     'event' => $this->eventForResponse(
                         $config,
@@ -873,7 +873,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 );
             }
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $bookingGroupId));
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return ['event' => $this->eventForResponse($config, $pdo, $event, $context), 'idempotent' => false];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
@@ -968,7 +968,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 );
             }
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return ['event' => $this->eventForResponse($config, $pdo, $event, $context)];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
@@ -1015,7 +1015,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':updated_at' => $now,
                 ':booking_group_id' => $groupId,
             ]);
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return ['cancelled' => true, 'eventId' => $eventId];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
@@ -1061,7 +1061,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 $historyDeleted = 0;
             }
 
-            $pdo->commit();
+            $this->commitImmediate($pdo);
             return [
                 'cancelledChecked' => $cancelledCount,
                 'historyChecked' => $historyCount,
@@ -1216,7 +1216,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $pdo->exec('ALTER TABLE events_v2 RENAME TO events');
             $this->createEventIndexes($pdo);
             $pdo->exec('PRAGMA user_version = 2');
-            $pdo->commit();
+            $this->commitImmediate($pdo);
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             throw $e;
@@ -1245,7 +1245,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 )'
             );
             $pdo->exec('PRAGMA user_version = 3');
-            $pdo->commit();
+            $this->commitImmediate($pdo);
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             throw $e;
@@ -1820,12 +1820,15 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
+    private function commitImmediate(PDO $pdo): void
+    {
+        $pdo->exec('COMMIT');
+    }
+
     private function rollBackQuietly(PDO $pdo): void
     {
         try {
-            if ($pdo->inTransaction()) {
-                $pdo->rollBack();
-            }
+            $pdo->exec('ROLLBACK');
         } catch (Throwable $ignored) {
         }
     }
