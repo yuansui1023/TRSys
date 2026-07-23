@@ -222,7 +222,14 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return ['events' => $events];
     }
 
-    public function createEvent(array $config, PDO $pdo, array $context, array $input, ?callable $reloadConfig = null): array
+    public function createEvent(
+        array $config,
+        PDO $pdo,
+        array $context,
+        array $input,
+        ?callable $reloadConfig = null,
+        ?int $nowTimestamp = null
+    ): array
     {
         $this->requireAuthenticated($context);
         $this->beginImmediate($pdo);
@@ -250,11 +257,17 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $eventType = $this->optionalEventType($input);
             $this->assertCreateAllowed($config, $instrument, $context, $eventType);
 
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input, $eventType);
+            $now = $nowTimestamp ?? time();
+            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument(
+                $config,
+                $instrument,
+                $input,
+                $eventType,
+                $now
+            );
             $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, null);
             $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
 
-            $now = time();
             $stmt = $pdo->prepare(
                 'INSERT INTO events (
                     instrument_code, event_type, owner_user, title, note,
@@ -296,7 +309,14 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
-    public function updateEvent(array $config, PDO $pdo, array $context, array $input, ?callable $reloadConfig = null): array
+    public function updateEvent(
+        array $config,
+        PDO $pdo,
+        array $context,
+        array $input,
+        ?callable $reloadConfig = null,
+        ?int $nowTimestamp = null
+    ): array
     {
         $this->requireAuthenticated($context);
         $this->beginImmediate($pdo);
@@ -310,7 +330,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             if ($existing === null || $existing['cancelled_at'] !== null) {
                 throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
             }
-            if (!$this->canEditEvent($config, $existing, $context)) {
+            $now = $nowTimestamp ?? time();
+            if (!$this->canEditEvent($config, $existing, $context, $now)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be edited.', 403);
             }
 
@@ -327,7 +348,13 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 $this->assertInstrumentBookingAccess($instrument, $context);
             }
 
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input, $eventType);
+            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument(
+                $config,
+                $instrument,
+                $input,
+                $eventType,
+                $now
+            );
             $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, $eventId);
             $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
 
@@ -357,7 +384,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':end_ts' => $end,
                 ':blocked_start_ts' => $blockedStart,
                 ':blocked_end_ts' => $blockedEnd,
-                ':updated_at' => time(),
+                ':updated_at' => $now,
                 ':id' => $eventId,
             ]);
 
@@ -563,9 +590,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return (bool)$instrument['enabled'] && $this->userHasInstrumentAccess($instrument, $context);
     }
 
-    private function canEditEvent(array $config, array $event, array $context): bool
+    private function canEditEvent(array $config, array $event, array $context, ?int $nowTimestamp = null): bool
     {
-        if ((int)$event['start_ts'] <= time()) {
+        if ((int)$event['start_ts'] < $this->nextBookableSlotTimestamp($config['timezone'], $nowTimestamp)) {
             return false;
         }
         if ($this->isManager($config, $context)) {
@@ -606,12 +633,47 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         ];
     }
 
-    private function validatedTimesForInstrument(array $instrument, array $input, string $eventType): array
+    public function nextBookableSlotTimestamp(string $timezone, ?int $nowTimestamp = null): int
     {
-        $start = $this->parseIsoToTimestamp($this->requireString($input, 'start', 64));
-        $end = $this->parseIsoToTimestamp($this->requireString($input, 'end', 64));
+        new DateTimeZone($timezone);
+        $now = $nowTimestamp ?? time();
+        return (intdiv($now, 1800) + 1) * 1800;
+    }
+
+    private function validatedTimesForInstrument(
+        array $config,
+        array $instrument,
+        array $input,
+        string $eventType,
+        int $nowTimestamp
+    ): array
+    {
+        $startValue = $this->requireString($input, 'start', 64);
+        $endValue = $this->requireString($input, 'end', 64);
+        $start = $this->parseIsoToTimestamp($startValue);
+        $end = $this->parseIsoToTimestamp($endValue);
+        if (
+            !$this->isThirtyMinuteTimestamp($startValue)
+            || !$this->isThirtyMinuteTimestamp($endValue)
+            || ($end - $start) % 1800 !== 0
+        ) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'Start and end times must use 30-minute intervals.',
+                400
+            );
+        }
         if ($start >= $end) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The end time must be later than the start time.', 400);
+        }
+
+        $earliestStart = $this->nextBookableSlotTimestamp($config['timezone'], $nowTimestamp);
+        if ($start < $earliestStart) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'The earliest available start time is ' . $this->formatSlotTime($earliestStart, $config['timezone']) . '.',
+                400
+            );
         }
 
         if ($eventType === 'block') {
@@ -634,6 +696,18 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $start - ((int)$instrument['buffer_before_minutes'] * 60),
             $end + ((int)$instrument['buffer_after_minutes'] * 60),
         ];
+    }
+
+    private function isThirtyMinuteTimestamp(string $value): bool
+    {
+        return preg_match('/T\d{2}:(?:00|30):00(?:Z|[+-]\d{2}:\d{2})$/i', $value) === 1;
+    }
+
+    private function formatSlotTime(int $timestamp, string $timezone): string
+    {
+        return (new DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new DateTimeZone($timezone))
+            ->format('H:i');
     }
 
     private function parseIsoToTimestamp(string $value): int
