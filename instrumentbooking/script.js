@@ -49,6 +49,10 @@
             calendar: null,
             saving: false,
             statusLocked: false,
+            weekNowLineTimer: null,
+            weekNowLineFrame: null,
+            weekNowLineResizeHandler: null,
+            weekNowLinePageHideHandler: null,
             updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
         };
@@ -171,12 +175,17 @@
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'timeGridWeek,timeGridDay'
+                right: ''
             },
             buttonText: {
-                today: 'Today',
-                week: 'Week',
-                day: 'Day'
+                today: 'Today'
+            },
+            datesSet: function (info) {
+                updateWeekTitle(calendarEl, formatWeekTitle(info.startStr, info.endStr, state.timezone));
+                scheduleWeekNowLines(root, state);
+            },
+            viewWillUnmount: function () {
+                clearWeekNowLines(root);
             },
             select: function (selection) {
                 openDialog(root, state, {
@@ -234,7 +243,162 @@
                 }
             }
         });
+        var destroyCalendar = state.calendar.destroy.bind(state.calendar);
+        state.calendar.destroy = function () {
+            stopWeekNowLineSync(root, state);
+            destroyCalendar();
+        };
         state.calendar.render();
+        startWeekNowLineSync(root, state);
+        scheduleWeekNowLines(root, state);
+    }
+
+    function formatWeekTitle(startStr, endStr, timezone) {
+        var start = civilDateParts(startStr, timezone);
+        var endExclusive = civilDateParts(endStr, timezone);
+        var endDate = new Date(Date.UTC(endExclusive.year, endExclusive.month - 1, endExclusive.day) - 86400000);
+        var end = {
+            year: endDate.getUTCFullYear(),
+            month: endDate.getUTCMonth() + 1,
+            day: endDate.getUTCDate()
+        };
+        var startMonth = monthName(start.month);
+        var endMonth = monthName(end.month);
+
+        if (start.year === end.year && start.month === end.month) {
+            return start.year + ' ' + startMonth + ' ' + start.day + '–' + end.day;
+        }
+        if (start.year === end.year) {
+            return start.year + ' ' + startMonth + ' ' + start.day + ' – ' + endMonth + ' ' + end.day;
+        }
+        return start.year + ' ' + startMonth + ' ' + start.day + ' – '
+            + end.year + ' ' + endMonth + ' ' + end.day;
+    }
+
+    function civilDateParts(value, timezone) {
+        var dateMatch = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value);
+        if (dateMatch) {
+            return {
+                year: Number(dateMatch[1]),
+                month: Number(dateMatch[2]),
+                day: Number(dateMatch[3])
+            };
+        }
+        var parts = zonedParts(new Date(value), timezone);
+        return {
+            year: Number(parts.year),
+            month: Number(parts.month),
+            day: Number(parts.day)
+        };
+    }
+
+    function monthName(month) {
+        return new Intl.DateTimeFormat('en-US', {
+            month: 'long',
+            timeZone: 'UTC'
+        }).format(new Date(Date.UTC(2000, month - 1, 1)));
+    }
+
+    function updateWeekTitle(calendarEl, title) {
+        var titleEl = calendarEl.querySelector('.fc-toolbar-title');
+        if (titleEl) {
+            titleEl.textContent = title;
+        }
+    }
+
+    function startWeekNowLineSync(root, state) {
+        if (state.weekNowLineTimer !== null) {
+            return;
+        }
+        state.weekNowLineResizeHandler = function () {
+            scheduleWeekNowLines(root, state);
+        };
+        state.weekNowLinePageHideHandler = function () {
+            stopWeekNowLineSync(root, state);
+        };
+        window.addEventListener('resize', state.weekNowLineResizeHandler);
+        window.addEventListener('pagehide', state.weekNowLinePageHideHandler);
+        state.weekNowLineTimer = window.setInterval(function () {
+            scheduleWeekNowLines(root, state);
+        }, 60000);
+    }
+
+    function stopWeekNowLineSync(root, state) {
+        if (state.weekNowLineTimer !== null) {
+            window.clearInterval(state.weekNowLineTimer);
+            state.weekNowLineTimer = null;
+        }
+        if (state.weekNowLineFrame !== null) {
+            window.cancelAnimationFrame(state.weekNowLineFrame);
+            state.weekNowLineFrame = null;
+        }
+        if (state.weekNowLineResizeHandler) {
+            window.removeEventListener('resize', state.weekNowLineResizeHandler);
+            state.weekNowLineResizeHandler = null;
+        }
+        if (state.weekNowLinePageHideHandler) {
+            window.removeEventListener('pagehide', state.weekNowLinePageHideHandler);
+            state.weekNowLinePageHideHandler = null;
+        }
+        clearWeekNowLines(root);
+    }
+
+    function scheduleWeekNowLines(root, state) {
+        if (state.weekNowLineFrame !== null) {
+            window.cancelAnimationFrame(state.weekNowLineFrame);
+        }
+        state.weekNowLineFrame = window.requestAnimationFrame(function () {
+            state.weekNowLineFrame = window.requestAnimationFrame(function () {
+                state.weekNowLineFrame = null;
+                syncWeekNowLines(root, state);
+            });
+        });
+    }
+
+    function syncWeekNowLines(root, state) {
+        clearWeekNowLines(root);
+        var calendarEl = root.querySelector('.ib-calendar');
+        var todayKey = zonedDateKey(new Date(), state.timezone);
+        var columns = Array.prototype.slice.call(
+            calendarEl.querySelectorAll('.fc-timegrid-col[data-date]')
+        );
+        var todayColumn = columns.find(function (column) {
+            return column.getAttribute('data-date') === todayKey;
+        });
+        var defaultLine = calendarEl.querySelector('.fc-timegrid-now-indicator-line');
+        if (!todayColumn || !defaultLine) {
+            return;
+        }
+
+        var todayFrame = todayColumn.querySelector('.fc-timegrid-col-frame');
+        if (!todayFrame) {
+            return;
+        }
+        var lineTop = defaultLine.getBoundingClientRect().top - todayFrame.getBoundingClientRect().top;
+
+        columns.forEach(function (column) {
+            var frame = column.querySelector('.fc-timegrid-col-frame');
+            if (!frame) {
+                return;
+            }
+            var line = el('div', 'ib-week-now-line');
+            var isToday = column === todayColumn;
+            line.classList.add(isToday ? 'ib-week-now-line-today' : 'ib-week-now-line-dim');
+            line.style.top = lineTop + 'px';
+            line.setAttribute('aria-hidden', 'true');
+            frame.appendChild(line);
+        });
+    }
+
+    function clearWeekNowLines(root) {
+        root.querySelectorAll('.ib-week-now-line').forEach(function (line) {
+            line.remove();
+        });
+    }
+
+    function zonedDateKey(date, timezone) {
+        var parts = zonedParts(date, timezone);
+        return parts.year + '-' + parts.month + '-' + parts.day;
     }
 
     function renderCalendarEvent(info) {
