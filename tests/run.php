@@ -927,7 +927,7 @@ test('second SQLite writer gets a handled busy condition', function () {
             $h->createEvent($c, $pdo2, user(), booking());
         });
     } finally {
-        $pdo1->rollBack();
+        $pdo1->exec('ROLLBACK');
     }
 });
 
@@ -1923,13 +1923,18 @@ foreach ($tests as [$name, $fn]) {
 
 $jsTest = __DIR__ . '/js_logic_test.js';
 if (is_file($jsTest)) {
-    $jsCommand = 'node ' . escapeshellarg($jsTest);
-    passthru($jsCommand, $jsExitCode);
-    if ($jsExitCode !== 0) {
-        $failures++;
-        echo "[FAIL] js_logic_test.js\n";
+    passthru('command -v node >/dev/null 2>&1', $nodeExitCode);
+    if ($nodeExitCode !== 0) {
+        echo "[SKIP] js_logic_test.js (Node.js is not installed; production does not require it)\n";
     } else {
-        echo "[PASS] js_logic_test.js\n";
+        $jsCommand = 'node ' . escapeshellarg($jsTest);
+        passthru($jsCommand, $jsExitCode);
+        if ($jsExitCode !== 0) {
+            $failures++;
+            echo "[FAIL] js_logic_test.js\n";
+        } else {
+            echo "[PASS] js_logic_test.js\n";
+        }
     }
 }
 
