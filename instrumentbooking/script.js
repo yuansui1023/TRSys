@@ -311,29 +311,14 @@
         return body.closest('.fc-scroller');
     }
 
-    function fitInitialTwelveHourWindow(root) {
-        var scroller = findTimegridBodyScroller(root);
-        var calendarEl = root.querySelector('.ib-calendar');
-        if (!scroller || !calendarEl || scroller.clientHeight <= 0) {
-            return false;
-        }
-        var visibleHalfHourSlots = 24;
-        var slotHeight = scroller.clientHeight / visibleHalfHourSlots;
-        if (!Number.isFinite(slotHeight) || slotHeight <= 0) {
-            return false;
-        }
-        calendarEl.style.setProperty('--ib-time-slot-height', slotHeight.toFixed(3) + 'px');
-        return true;
-    }
-
     function ensureInitialTimeSlotScroll(root, state) {
         if (state.timeSlotScrollInitialized) {
             return true;
         }
-        if (!state.calendar || !fitInitialTwelveHourWindow(root)) {
+        var scroller = findTimegridBodyScroller(root);
+        if (!state.calendar || !scroller || scroller.clientHeight <= 0) {
             return false;
         }
-        state.calendar.updateSize();
         state.calendar.scrollToTime('09:00:00');
         state.timeSlotScrollInitialized = true;
         return true;
