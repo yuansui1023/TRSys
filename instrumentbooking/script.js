@@ -191,6 +191,7 @@
             nowIndicator: false,
             allDaySlot: false,
             height: 'auto',
+            contentHeight: 'auto',
             slotMinTime: '00:00:00',
             slotMaxTime: '24:00:00',
             slotDuration: '00:30:00',

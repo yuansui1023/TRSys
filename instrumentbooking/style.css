@@ -300,14 +300,14 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid {
     overflow: hidden;
-    border: 1px solid var(--ib-border);
+    border: 1px solid var(--ib-table-border-strong);
     border-radius: 15px;
     background: var(--ib-surface);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc.fc-theme-standard td,
 .instrument-booking-app[data-theme="midnight-lab"] .fc.fc-theme-standard th {
-    border-color: var(--ib-grid);
+    border-color: var(--ib-table-border);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-col-header {
@@ -339,13 +339,36 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot {
     height: 2em;
-    border-color: var(--ib-grid);
+    border-color: var(--ib-table-border);
     background: var(--ib-surface);
 }
 
+/* Half-hour rows keep 30-minute geometry; only hide their divider line. */
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot-minor {
-    border-top-style: dotted;
-    border-top-color: rgba(255, 255, 255, 0.04);
+    border-top-color: transparent !important;
+    border-top-style: solid !important;
+}
+
+/*
+ * FullCalendar sets min-height:100% on the timegrid body/col frames so liquid
+ * scroll sections can stretch. With height:auto that stretch creates empty
+ * dark space below the final 24:00 slot edge inside the rounded scrollgrid.
+ */
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-body,
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-col-frame {
+    min-height: 0;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid-section-liquid > td {
+    height: auto;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid-section-body > td {
+    border-bottom: 0;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid-section-body table {
+    border-bottom-style: none;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot-label-cushion,
@@ -407,6 +430,10 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-col-events {
     z-index: 4;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-event {
+    margin-bottom: 0;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-header-toolbar {

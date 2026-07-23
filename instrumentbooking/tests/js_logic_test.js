@@ -170,5 +170,17 @@ check('Monday-aligned weeks still detect next week', function () {
     assert.strictEqual(classifyWeekNowLineMode(nextStart, nextEnd, now, timezone), 'next');
 });
 
+check('timegrid hides half-hour minor lines and collapses bottom blank space', function () {
+    var stylePath = path.join(__dirname, '..', 'style.css');
+    var css = fs.readFileSync(stylePath, 'utf8');
+    assert.ok(css.indexOf('.fc-timegrid-slot-minor') !== -1);
+    assert.ok(css.indexOf('border-top-color: transparent') !== -1);
+    assert.ok(css.indexOf('.fc-timegrid-body') !== -1);
+    assert.ok(css.indexOf('min-height: 0') !== -1);
+    assert.ok(script.indexOf("contentHeight: 'auto'") !== -1);
+    assert.ok(script.indexOf("slotDuration: '00:30:00'") !== -1);
+    assert.ok(script.indexOf("slotMaxTime: '24:00:00'") !== -1);
+});
+
 console.log('js_logic_test: ' + (failures === 0 ? 'ok' : failures + ' failures'));
 process.exit(failures === 0 ? 0 : 1);
