@@ -73,8 +73,6 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-glass-soft: rgba(255, 255, 255, 0.04);
     --ib-border: rgba(255, 255, 255, 0.09);
     --ib-border-strong: rgba(255, 255, 255, 0.15);
-    --ib-table-border: rgba(139, 92, 246, 0.18);
-    --ib-table-border-strong: rgba(139, 92, 246, 0.28);
     --ib-text: #f7f5fb;
     --ib-text-secondary: #b8b3c2;
     --ib-text-muted: #857d94;
@@ -300,14 +298,14 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid {
     overflow: hidden;
-    border: 1px solid var(--ib-table-border-strong);
+    border: 1px solid var(--ib-border);
     border-radius: 15px;
     background: var(--ib-surface);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc.fc-theme-standard td,
 .instrument-booking-app[data-theme="midnight-lab"] .fc.fc-theme-standard th {
-    border-color: var(--ib-table-border);
+    border-color: var(--ib-grid);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-col-header {
@@ -339,7 +337,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot {
     height: 1.8em;
-    border-color: var(--ib-table-border);
+    border-color: var(--ib-grid);
     background: var(--ib-surface);
 }
 
@@ -934,7 +932,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table-wrap {
     width: 100%;
     overflow-x: auto;
-    border: 1px solid var(--ib-table-border-strong);
+    border: 1px solid var(--ib-border);
     border-radius: 12px;
     background: var(--ib-surface);
 }
@@ -945,7 +943,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table tr,
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table th,
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table td {
-    border-color: var(--ib-table-border) !important;
+    border-color: var(--ib-border) !important;
     background-color: transparent;
     color: var(--ib-text);
 }
@@ -963,7 +961,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table th,
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table td {
     padding: 10px 8px;
-    border: 1px solid var(--ib-table-border) !important;
+    border: 1px solid var(--ib-border) !important;
     border-top: 0 !important;
     border-left: 0 !important;
     vertical-align: middle;
@@ -982,7 +980,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table thead th {
-    border-bottom: 1px solid var(--ib-table-border-strong) !important;
+    border-bottom: 1px solid var(--ib-border-strong) !important;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-tools-table th {
