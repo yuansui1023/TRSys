@@ -1,23 +1,93 @@
+body.instrument-booking-page {
+    min-height: 100vh;
+    color: #f8fafc;
+    background-color: #0a0a0a;
+    background-image: radial-gradient(circle at 50% 0, rgba(255, 255, 255, 0.045), transparent 38%);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body.instrument-booking-page #dokuwiki__site,
+body.instrument-booking-page #dokuwiki__content,
+body.instrument-booking-page .dokuwiki,
+body.instrument-booking-page .page {
+    background-color: transparent;
+    color: #f8fafc;
+}
+
+body.instrument-booking-page #dokuwiki__site {
+    width: auto;
+    max-width: none;
+}
+
+body.instrument-booking-page #dokuwiki__content {
+    width: auto;
+    max-width: none;
+}
+
+body.instrument-booking-page .wrapper {
+    width: auto;
+    max-width: none;
+}
+
+body.instrument-booking-page .docInfo,
+body.instrument-booking-page #dokuwiki__footer {
+    color: rgba(255, 255, 255, 0.42);
+}
+
 .instrument-booking-app {
-    border: 1px solid #d8dee4;
-    border-radius: 8px;
-    padding: 16px;
-    background: #fff;
+    box-sizing: border-box;
+    width: 100%;
+    color: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 20px;
+    padding: 18px;
+    overflow: hidden;
+    background: rgba(10, 10, 10, 0.88);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+    color-scheme: dark;
 }
 
 .instrument-booking-app .ib-toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 18px;
     align-items: center;
-    margin-bottom: 12px;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding: 16px 18px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+}
+
+.instrument-booking-app .ib-title {
+    margin: 0;
+    color: #f8fafc;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+}
+
+.instrument-booking-app .ib-toolbar-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
 }
 
 .instrument-booking-app .ib-field-inline {
     display: flex;
-    gap: 8px;
+    gap: 9px;
     align-items: center;
+    color: rgba(255, 255, 255, 0.64);
+    font-size: 12px;
     font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .instrument-booking-app .ib-instrument-select,
@@ -25,30 +95,203 @@
     box-sizing: border-box;
     width: 100%;
     max-width: 100%;
-    padding: 6px 8px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    background: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.055);
+    font: inherit;
+}
+
+.instrument-booking-app .ib-instrument-select {
+    width: auto;
+    min-width: 180px;
+    padding: 9px 34px 9px 12px;
+}
+
+.instrument-booking-app .ib-instrument-select:focus,
+.instrument-booking-app .ib-input:focus {
+    border-color: rgba(163, 163, 163, 0.78);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.24);
 }
 
 .instrument-booking-app .ib-timezone {
-    color: #475569;
-    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 12px;
+    white-space: nowrap;
 }
 
 .instrument-booking-app .ib-status {
-    min-height: 1.5em;
-    margin-bottom: 12px;
-    color: #475569;
+    min-height: 22px;
+    margin: 0 4px 10px;
+    color: rgba(255, 255, 255, 0.64);
+    font-size: 13px;
+}
+
+.instrument-booking-app .ib-status:empty {
+    display: none;
 }
 
 .instrument-booking-app .ib-status-error,
 .instrument-booking-app .ib-dialog-message {
-    color: #b91c1c;
+    color: #f87171;
 }
 
 .instrument-booking-app .ib-calendar {
     margin-top: 8px;
+}
+
+.instrument-booking-app .fc {
+    color: #f8fafc;
+    background: #0a0a0a;
+    font-family: inherit;
+}
+
+.instrument-booking-app .fc .fc-scrollgrid {
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    background: #0a0a0a;
+}
+
+.instrument-booking-app .fc.fc-theme-standard td,
+.instrument-booking-app .fc.fc-theme-standard th {
+    border-color: rgba(255, 255, 255, 0.065);
+}
+
+.instrument-booking-app .fc .fc-col-header-cell {
+    background: rgba(20, 20, 20, 0.92);
+}
+
+.instrument-booking-app .fc .fc-col-header-cell-cushion {
+    padding: 12px 6px;
+    color: rgba(255, 255, 255, 0.64);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+}
+
+.instrument-booking-app .fc .fc-timegrid-slot {
+    height: 3.25em;
+    border-color: rgba(255, 255, 255, 0.055);
+}
+
+.instrument-booking-app .fc .fc-timegrid-slot-minor {
+    border-top-style: dotted;
+    border-top-color: rgba(255, 255, 255, 0.035);
+}
+
+.instrument-booking-app .fc .fc-timegrid-axis {
+    color: rgba(255, 255, 255, 0.48);
+    background: #0a0a0a;
+}
+
+.instrument-booking-app .fc .fc-timegrid-slot-label-cushion,
+.instrument-booking-app .fc .fc-timegrid-axis-cushion {
+    color: rgba(255, 255, 255, 0.48);
+    font-size: 11px;
+}
+
+.instrument-booking-app .fc .fc-day-today {
+    background: rgba(107, 114, 128, 0.08) !important;
+}
+
+.instrument-booking-app .fc .fc-timegrid-now-indicator-line {
+    border-color: #ff3b3b;
+    border-width: 2px 0 0;
+    box-shadow: 0 0 10px rgba(255, 59, 59, 0.42);
+}
+
+.instrument-booking-app .fc .fc-timegrid-now-indicator-arrow {
+    border-top-color: transparent;
+    border-bottom-color: transparent;
+    border-left-color: #ff3b3b;
+}
+
+.instrument-booking-app .fc .fc-toolbar {
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.instrument-booking-app .fc .fc-toolbar-title {
+    color: #f8fafc;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+}
+
+.instrument-booking-app .fc .fc-button-primary {
+    min-height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.07);
+    box-shadow: none;
+    opacity: 1;
+    font-weight: 600;
+}
+
+.instrument-booking-app .fc .fc-button-primary:hover {
+    border-color: rgba(255, 255, 255, 0.24);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.13);
+}
+
+.instrument-booking-app .fc .fc-button-primary:focus {
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.11);
+    box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.3);
+}
+
+.instrument-booking-app .fc .fc-button-primary.fc-button-active {
+    border-color: #6b7280;
+    color: #ffffff;
+    background: #6b7280;
+}
+
+.instrument-booking-app .fc .fc-button-primary:disabled {
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #a3a3a3;
+    background: #181818;
+    opacity: 1;
+}
+
+.instrument-booking-app .fc .fc-icon {
+    color: inherit;
+}
+
+.instrument-booking-app .fc .fc-event {
+    overflow: hidden;
+    border-top-width: 1px;
+    border-right-width: 1px;
+    border-bottom-width: 1px;
+    border-left-width: 4px;
+    border-radius: 8px;
+    color: #ffffff;
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition: filter 160ms ease, box-shadow 160ms ease;
+}
+
+.instrument-booking-app .fc .fc-event:hover {
+    filter: brightness(1.14);
+    box-shadow: 0 7px 20px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.instrument-booking-app .fc .fc-event-main {
+    padding: 4px 6px;
+    color: #ffffff;
+}
+
+.instrument-booking-app .fc .fc-event-title {
+    font-weight: 700;
+}
+
+.instrument-booking-app .fc .fc-event-time {
+    color: rgba(255, 255, 255, 0.76);
+    font-size: 11px;
+    font-weight: 500;
 }
 
 .instrument-booking-app .ib-dialog-overlay {
@@ -58,8 +301,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     padding: 16px;
-    background: rgba(15, 23, 42, 0.45);
+    background: rgba(0, 0, 0, 0.76);
+    -webkit-backdrop-filter: blur(7px);
+    backdrop-filter: blur(7px);
 }
 
 .instrument-booking-app .ib-dialog-overlay[hidden] {
@@ -67,60 +313,205 @@
 }
 
 .instrument-booking-app .ib-dialog {
+    box-sizing: border-box;
     width: 100%;
     max-width: 520px;
     max-height: 90vh;
     overflow: auto;
-    border-radius: 10px;
-    padding: 18px;
-    background: #fff;
-    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 26px;
+    padding: 28px;
+    color: #f8fafc;
+    background: rgba(20, 20, 20, 0.96);
+    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.64), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
 }
 
 .instrument-booking-app .ib-dialog-title {
-    margin: 0 0 12px;
+    margin: 0 0 22px;
+    color: #f8fafc;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
 .instrument-booking-app .ib-field {
     display: block;
-    margin: 10px 0;
-    font-weight: 600;
+    margin: 15px 0;
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
 }
 
 .instrument-booking-app .ib-field .ib-input {
     display: block;
-    margin-top: 4px;
-    font-weight: normal;
+    min-height: 46px;
+    margin-top: 7px;
+    padding: 11px 13px;
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.045);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.instrument-booking-app .ib-field textarea.ib-input {
+    min-height: 92px;
+    resize: vertical;
+}
+
+.instrument-booking-app .ib-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.instrument-booking-app .ib-input:disabled {
+    border-color: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.68);
+    background: rgba(255, 255, 255, 0.025);
+    opacity: 1;
+}
+
+.instrument-booking-app .ib-dialog-message {
+    min-height: 20px;
+    margin: 14px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 .instrument-booking-app .ib-dialog-buttons {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 10px;
     justify-content: flex-end;
-    margin-top: 14px;
+    margin-top: 20px;
 }
 
 .instrument-booking-app .ib-dialog button {
-    padding: 6px 12px;
-    border: 1px solid #cbd5e1;
-    border-radius: 4px;
-    background: #f8fafc;
+    min-height: 42px;
+    padding: 9px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 9px;
+    color: #f8fafc;
+    background: rgba(255, 255, 255, 0.07);
     cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.instrument-booking-app .ib-dialog button:hover,
+.instrument-booking-app .ib-dialog button:focus {
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(255, 255, 255, 0.12);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.22);
+}
+
+.instrument-booking-app .ib-dialog button.ib-close {
+    width: 42px;
+    padding: 0;
+    font-size: 22px;
+    line-height: 1;
 }
 
 .instrument-booking-app .ib-dialog button[type="submit"] {
-    border-color: #1d4ed8;
-    background: #2563eb;
-    color: #fff;
+    border-color: #8b929e;
+    color: #ffffff;
+    background: #747b87;
+}
+
+.instrument-booking-app .ib-dialog button[type="submit"]:hover,
+.instrument-booking-app .ib-dialog button[type="submit"]:focus {
+    border-color: #a3a9b2;
+    background: #858c98;
 }
 
 .instrument-booking-app .ib-dialog button.ib-danger {
-    border-color: #b91c1c;
-    background: #dc2626;
-    color: #fff;
+    border-color: rgba(248, 81, 73, 0.4);
+    color: #ff6259;
+    background: rgba(127, 29, 29, 0.22);
+}
+
+.instrument-booking-app .ib-dialog button.ib-danger:hover,
+.instrument-booking-app .ib-dialog button.ib-danger:focus {
+    border-color: rgba(248, 81, 73, 0.7);
+    color: #ff7b73;
+    background: rgba(127, 29, 29, 0.34);
+    box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.13);
 }
 
 .instrument-booking-app .ib-dialog button:disabled {
-    opacity: 0.65;
+    border-color: rgba(255, 255, 255, 0.08);
+    color: #a3a3a3;
+    background: #181818;
+    opacity: 1;
     cursor: wait;
+}
+
+@media (max-width: 760px) {
+    .instrument-booking-app {
+        padding: 10px;
+        border-radius: 14px;
+    }
+
+    .instrument-booking-app .ib-toolbar,
+    .instrument-booking-app .ib-toolbar-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .instrument-booking-app .ib-field-inline {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .instrument-booking-app .ib-instrument-select {
+        width: 100%;
+    }
+
+    .instrument-booking-app .fc .fc-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .instrument-booking-app .fc .fc-toolbar-chunk {
+        display: flex;
+        justify-content: center;
+    }
+
+    .instrument-booking-app .fc .fc-toolbar-title {
+        text-align: center;
+    }
+
+    .instrument-booking-app .fc .fc-button-primary {
+        min-height: 42px;
+    }
+
+    .instrument-booking-app .ib-dialog {
+        padding: 22px 18px;
+        border-radius: 22px;
+    }
+
+    .instrument-booking-app .ib-dialog-buttons {
+        flex-direction: column;
+    }
+
+    .instrument-booking-app .ib-dialog button {
+        width: 100%;
+    }
+
+    .instrument-booking-app .ib-dialog button.ib-close {
+        width: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .instrument-booking-app .fc .fc-event,
+    .instrument-booking-app .ib-dialog button {
+        transition: none;
+    }
 }
