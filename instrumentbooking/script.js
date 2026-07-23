@@ -183,24 +183,26 @@
                 var event = info.event.extendedProps.bookingEvent;
                 openDialog(root, state, Object.assign({ mode: 'view' }, event));
             },
+            eventContent: function (info) {
+                return renderCalendarEvent(info);
+            },
             events: function (info, success, failure) {
                 api(state, 'GET', 'events', {
                     instrumentCode: state.selectedInstrument,
                     start: ensureExplicitOffset(info.startStr, state.timezone),
                     end: ensureExplicitOffset(info.endStr, state.timezone)
                 }).then(function (data) {
-                    var instrument = findInstrument(state, state.selectedInstrument);
-                    var color = instrument ? instrument.color : '#64748b';
                     success((data.events || []).map(function (event) {
-                        var eventColor = event.eventType === 'block' ? '#b45309' : color;
+                        var isOutage = event.eventType === 'block';
                         return {
                             id: String(event.id),
                             title: event.title,
                             start: event.start,
                             end: event.end,
-                            backgroundColor: hexToRgba(eventColor, 0.38),
-                            borderColor: eventColor,
+                            backgroundColor: isOutage ? 'rgba(239, 68, 68, 0.28)' : 'rgba(59, 130, 246, 0.28)',
+                            borderColor: isOutage ? 'rgba(248, 113, 113, 0.92)' : 'rgba(96, 165, 250, 0.9)',
                             textColor: '#ffffff',
+                            classNames: [isOutage ? 'ib-event-outage' : 'ib-event-booking'],
                             extendedProps: {
                                 bookingEvent: event
                             }
@@ -224,6 +226,35 @@
         state.calendar.render();
     }
 
+    function renderCalendarEvent(info) {
+        var eventData = info.event.extendedProps.bookingEvent;
+        var isOutage = eventData.eventType === 'block';
+        var container = el('div', 'ib-event-content');
+        var time = el('div', 'ib-event-card-time');
+        time.textContent = info.timeText.replace(/\s*-\s*/, '–');
+        container.appendChild(time);
+
+        var heading = el('div', 'ib-event-card-heading');
+        heading.textContent = (isOutage ? 'OUTAGE' : eventData.title) + ' · ' + eventData.ownerUser;
+        container.appendChild(heading);
+
+        if (eventData.note) {
+            var note = el('div', 'ib-event-card-note');
+            note.textContent = eventData.note;
+            container.appendChild(note);
+        }
+
+        container.title = [
+            isOutage ? 'OUTAGE: ' + eventData.title : eventData.title,
+            'Type: ' + (isOutage ? 'Outage' : 'Booking'),
+            'User: ' + eventData.ownerUser,
+            info.timeText,
+            eventData.note ? 'Note: ' + eventData.note : ''
+        ].filter(Boolean).join('\n');
+
+        return { domNodes: [container] };
+    }
+
     function buildDialog(state) {
         var overlay = el('div', 'ib-dialog-overlay');
         overlay.hidden = true;
@@ -244,7 +275,7 @@
         typeWrap.appendChild(text('Type'));
         var typeSelect = el('select', 'ib-input');
         typeSelect.name = 'eventType';
-        [['booking', 'Booking'], ['block', 'Maintenance/outage']].forEach(function (item) {
+        [['booking', 'Booking'], ['block', 'Outage']].forEach(function (item) {
             var option = document.createElement('option');
             option.value = item[0];
             option.textContent = item[1];
@@ -252,6 +283,19 @@
         });
         typeWrap.appendChild(typeSelect);
         form.appendChild(typeWrap);
+
+        var metadata = el('div', 'ib-event-metadata');
+        metadata.hidden = true;
+        var typeBadge = el('span', 'ib-event-type-badge');
+        metadata.appendChild(typeBadge);
+        var owner = el('span', 'ib-event-owner');
+        var ownerLabel = el('span', 'ib-event-owner-label');
+        ownerLabel.textContent = 'Username';
+        var ownerValue = el('span', 'ib-event-owner-value');
+        owner.appendChild(ownerLabel);
+        owner.appendChild(ownerValue);
+        metadata.appendChild(owner);
+        form.appendChild(metadata);
 
         var noteWrap = el('label', 'ib-field');
         noteWrap.appendChild(text('Note'));
@@ -308,17 +352,33 @@
         setValue(overlay, 'eventType', eventData.eventType || 'booking');
         setValue(overlay, 'note', eventData.note || '');
 
-        overlay.querySelector('.ib-event-type-field').hidden = !state.isManager;
-        overlay.querySelector('[name="eventType"]').disabled = !state.isManager || !canEdit;
+        var showEventTypeChoice = state.isManager && isCreate;
+        var eventTypeField = overlay.querySelector('.ib-event-type-field');
+        var eventTypeSelect = overlay.querySelector('[name="eventType"]');
+        eventTypeField.hidden = !showEventTypeChoice;
+        eventTypeSelect.disabled = !showEventTypeChoice;
+
+        var metadata = overlay.querySelector('.ib-event-metadata');
+        var typeBadge = overlay.querySelector('.ib-event-type-badge');
+        metadata.hidden = isCreate;
+        typeBadge.textContent = eventData.eventType === 'block' ? 'OUTAGE' : 'BOOKING';
+        typeBadge.classList.toggle('ib-event-type-outage', eventData.eventType === 'block');
+        typeBadge.classList.toggle('ib-event-type-booking', eventData.eventType !== 'block');
+        overlay.querySelector('.ib-event-owner-value').textContent = eventData.ownerUser || '';
+
         overlay.querySelector('[name="title"]').disabled = !canEdit;
         overlay.querySelector('[name="start"]').disabled = !canEdit;
         overlay.querySelector('[name="end"]').disabled = !canEdit;
         overlay.querySelector('[name="note"]').disabled = !canEdit;
         overlay.querySelector('[type="submit"]').hidden = !canEdit;
         overlay.querySelector('.ib-danger').hidden = !(eventData.canCancel && !isCreate);
-        overlay.querySelector('.ib-dialog-message').textContent = canEdit
-            ? 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.'
-            : 'Bookings owned by other users only show reserved time.';
+        if (!isCreate && eventData.eventType === 'block') {
+            overlay.querySelector('.ib-dialog-message').textContent = 'This is an equipment outage. Only an administrator can modify it.';
+        } else if (!isCreate && !canEdit) {
+            overlay.querySelector('.ib-dialog-message').textContent = 'You can view the complete reservation details. Only the owner or an administrator can modify this event.';
+        } else {
+            overlay.querySelector('.ib-dialog-message').textContent = 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.';
+        }
         overlay.hidden = false;
     }
 
@@ -333,7 +393,9 @@
             title: getValue(overlay, 'title'),
             start: fromDatetimeInput(getValue(overlay, 'start'), state.timezone),
             end: fromDatetimeInput(getValue(overlay, 'end'), state.timezone),
-            eventType: state.isManager ? getValue(overlay, 'eventType') : 'booking',
+            eventType: isCreate
+                ? (state.isManager ? getValue(overlay, 'eventType') : 'booking')
+                : eventData.eventType,
             note: getValue(overlay, 'note')
         };
         if (isCreate) {
@@ -476,32 +538,6 @@
             btn.disabled = saving;
         });
         overlay.querySelector('[type="submit"]').textContent = saving ? 'Saving...' : 'Save';
-    }
-
-    function findInstrument(state, code) {
-        for (var i = 0; i < state.instruments.length; i += 1) {
-            if (state.instruments[i].code === code) {
-                return state.instruments[i];
-            }
-        }
-        return null;
-    }
-
-    function hexToRgba(color, alpha) {
-        var value = String(color || '').trim();
-        var match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
-        if (!match) {
-            return 'rgba(100, 116, 139, ' + alpha + ')';
-        }
-        var hex = match[1];
-        if (hex.length === 3) {
-            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-        }
-        return 'rgba('
-            + parseInt(hex.slice(0, 2), 16) + ', '
-            + parseInt(hex.slice(2, 4), 16) + ', '
-            + parseInt(hex.slice(4, 6), 16) + ', '
-            + alpha + ')';
     }
 
     function ensureExplicitOffset(value, timezone) {
