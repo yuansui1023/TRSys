@@ -79,8 +79,8 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-accent: #8b5cf6;
     --ib-accent-hover: #a78bfa;
     --ib-accent-soft: rgba(139, 92, 246, 0.18);
-    --ib-control-bg: #0d0814;
-    --ib-control-hover: #150c20;
+    --ib-control-bg: #2b183f;
+    --ib-control-hover: #43245f;
     --ib-control-active: var(--ib-control-hover);
     --ib-control-border: var(--ib-control-hover);
     --ib-control-focus: var(--ib-control-hover);
@@ -88,6 +88,8 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-button-hover: var(--ib-control-hover);
     --ib-button-active: var(--ib-control-active);
     --ib-danger: #f87171;
+    --ib-danger-bg: #3a1016;
+    --ib-danger-hover: #541820;
     --ib-now: #fb7185;
     --ib-today: rgba(139, 92, 246, 0.10);
     box-sizing: border-box;
@@ -252,7 +254,7 @@ body.instrument-booking-page #dokuwiki__content .page {
     color: var(--ib-text-muted);
     border-color: var(--ib-control-border);
     background: var(--ib-control-bg);
-    opacity: 0.6;
+    opacity: 1;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-status {
@@ -474,7 +476,7 @@ body.instrument-booking-page #dokuwiki__content .page {
     border-color: var(--ib-control-border);
     background: var(--ib-control-bg);
     box-shadow: none;
-    opacity: 0.6;
+    opacity: 1;
     cursor: default;
 }
 
@@ -780,14 +782,14 @@ body.instrument-booking-page #dokuwiki__content .page {
 .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button.ib-danger {
     color: #ff7673;
     border-color: rgba(239, 83, 80, 0.48);
-    background: var(--ib-control-bg);
+    background: var(--ib-danger-bg);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button.ib-danger:hover,
 .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button.ib-danger:focus {
     color: #ff918e;
     border-color: var(--ib-danger);
-    background: var(--ib-control-hover);
+    background: var(--ib-danger-hover);
     box-shadow: 0 0 0 3px rgba(239, 83, 80, 0.16);
 }
 
@@ -795,8 +797,15 @@ body.instrument-booking-page #dokuwiki__content .page {
     color: var(--ib-text-muted);
     border-color: var(--ib-control-border);
     background: var(--ib-control-bg);
-    opacity: 0.6;
+    opacity: 1;
     cursor: default;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button.ib-danger:disabled {
+    color: #ff7673;
+    border-color: rgba(239, 83, 80, 0.48);
+    background: var(--ib-danger-bg);
+    opacity: 0.65;
 }
 
 @media (max-width: 768px) {
