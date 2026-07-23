@@ -680,15 +680,30 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"].ib-portal {
     box-sizing: border-box;
-    width: auto;
+    display: block;
+    position: static;
+    z-index: auto;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    flex: none;
+    width: 0;
     min-height: 0;
+    height: 0;
+    max-height: none;
     padding: 0;
     overflow: visible;
+    pointer-events: none;
     color: var(--ib-text);
     border: 0;
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"].ib-portal .ib-delete-confirm-overlay {
+    pointer-events: auto;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog {

@@ -184,6 +184,11 @@ check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scr
     assert.ok(css.indexOf('left: 16px') !== -1);
     assert.ok(css.indexOf('height: auto') !== -1);
     assert.ok(css.indexOf('max-height: none') !== -1);
+    assert.ok(css.indexOf('.instrument-booking-app[data-theme="midnight-lab"].ib-portal') !== -1);
+    assert.ok(css.indexOf('position: static') !== -1);
+    assert.ok(css.indexOf('pointer-events: none') !== -1);
+    assert.ok(css.indexOf('.ib-portal .ib-delete-confirm-overlay') !== -1);
+    assert.ok(css.indexOf('pointer-events: auto') !== -1);
     assert.ok(script.indexOf("height: '100%'") !== -1);
     assert.ok(script.indexOf('scrollTimeReset: false') !== -1);
     assert.ok(script.indexOf('scheduleInitialTimeSlotScroll') !== -1);
