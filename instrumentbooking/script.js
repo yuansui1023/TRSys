@@ -199,9 +199,9 @@
                             title: event.title,
                             start: event.start,
                             end: event.end,
-                            backgroundColor: isOutage ? 'rgba(239, 68, 68, 0.28)' : 'rgba(59, 130, 246, 0.28)',
-                            borderColor: isOutage ? 'rgba(248, 113, 113, 0.92)' : 'rgba(96, 165, 250, 0.9)',
-                            textColor: '#ffffff',
+                            backgroundColor: isOutage ? 'rgba(239, 68, 68, 0.26)' : 'rgba(59, 130, 246, 0.26)',
+                            borderColor: isOutage ? 'rgba(248, 113, 113, 0.92)' : 'rgba(96, 165, 250, 0.92)',
+                            textColor: isOutage ? '#fff7f7' : '#f7fbff',
                             classNames: [isOutage ? 'ib-event-outage' : 'ib-event-booking'],
                             extendedProps: {
                                 bookingEvent: event
@@ -230,16 +230,22 @@
         var eventData = info.event.extendedProps.bookingEvent;
         var isOutage = eventData.eventType === 'block';
         var container = el('div', 'ib-event-content');
-        var time = el('div', 'ib-event-card-time');
+        var time = el('div', 'ib-event-time');
         time.textContent = info.timeText.replace(/\s*-\s*/, '–');
         container.appendChild(time);
 
-        var heading = el('div', 'ib-event-card-heading');
-        heading.textContent = (isOutage ? 'OUTAGE' : eventData.title) + ' · ' + eventData.ownerUser;
-        container.appendChild(heading);
+        var main = el('div', 'ib-event-main');
+        var primary = el('span', isOutage ? 'ib-event-type' : 'ib-event-title');
+        primary.textContent = isOutage ? 'OUTAGE' : eventData.title;
+        main.appendChild(primary);
+        main.appendChild(document.createTextNode(' · '));
+        var owner = el('span', 'ib-event-owner');
+        owner.textContent = eventData.ownerUser;
+        main.appendChild(owner);
+        container.appendChild(main);
 
         if (eventData.note) {
-            var note = el('div', 'ib-event-card-note');
+            var note = el('div', 'ib-event-note');
             note.textContent = eventData.note;
             container.appendChild(note);
         }
@@ -272,7 +278,7 @@
         form.appendChild(field('end', 'End time', 'datetime-local', 64));
 
         var typeWrap = el('label', 'ib-field ib-event-type-field');
-        typeWrap.appendChild(text('Type'));
+        typeWrap.appendChild(text('Event type'));
         var typeSelect = el('select', 'ib-input');
         typeSelect.name = 'eventType';
         [['booking', 'Booking'], ['block', 'Outage']].forEach(function (item) {
