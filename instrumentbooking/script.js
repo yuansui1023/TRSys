@@ -149,6 +149,7 @@
             state.selectedInstrument = select.value;
             if (state.calendar) {
                 state.calendar.refetchEvents();
+                state.calendar.scrollToTime('09:00:00');
             }
         });
         selectWrap.appendChild(select);
