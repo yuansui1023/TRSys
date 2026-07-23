@@ -12,8 +12,11 @@ $tests = [];
 
 class TestInstrumentBookingHelper extends helper_plugin_instrumentbooking
 {
-    /** @var array<string, bool>|null */
+    /** @var array<string, bool|string>|null */
     public ?array $knownUsers = null;
+
+    /** @var bool|null */
+    public ?bool $userEnumerationSupported = null;
 
     public function createEvent(
         array $config,
@@ -54,15 +57,55 @@ class TestInstrumentBookingHelper extends helper_plugin_instrumentbooking
     public function dokuWikiUserExists(string $username): bool
     {
         if ($this->knownUsers !== null) {
-            $key = strtolower($username);
-            foreach ($this->knownUsers as $name => $exists) {
-                if (strtolower((string)$name) === $key) {
-                    return (bool)$exists;
-                }
-            }
-            return false;
+            return $this->lookupKnownUser($username) !== null;
         }
         return parent::dokuWikiUserExists($username);
+    }
+
+    public function dokuWikiCanListUsers(): bool
+    {
+        if ($this->userEnumerationSupported !== null) {
+            return $this->userEnumerationSupported;
+        }
+        if ($this->knownUsers !== null) {
+            return true;
+        }
+        return parent::dokuWikiCanListUsers();
+    }
+
+    public function retrieveDokuWikiUsers(): array
+    {
+        if ($this->knownUsers !== null) {
+            $users = [];
+            foreach ($this->knownUsers as $username => $value) {
+                if ($value === false) {
+                    continue;
+                }
+                $users[(string)$username] = is_string($value) ? $value : '';
+            }
+            return $users;
+        }
+        return parent::retrieveDokuWikiUsers();
+    }
+
+    public function dokuWikiDisplayName(string $username): string
+    {
+        if ($this->knownUsers !== null) {
+            $value = $this->lookupKnownUser($username);
+            return is_string($value) ? $value : '';
+        }
+        return parent::dokuWikiDisplayName($username);
+    }
+
+    private function lookupKnownUser(string $username): bool|string|null
+    {
+        $key = strtolower($username);
+        foreach ($this->knownUsers ?? [] as $name => $value) {
+            if (strtolower((string)$name) === $key) {
+                return $value === false ? null : $value;
+            }
+        }
+        return null;
     }
 
     private function testNowFromInput(array $input): int
@@ -638,9 +681,17 @@ test('end before start is rejected', function () {
 
 test('booking over max duration is rejected', function () {
     [$h, $c, $pdo] = fixture();
-    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T14:00:00-08:00']));
-    });
+    try {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T14:00:00-08:00',
+        ]));
+        throw new RuntimeException('Expected INVALID_INPUT');
+    } catch (InstrumentBookingException $e) {
+        assert_true($e->errorCode() === 'INVALID_INPUT');
+        assert_true(str_contains($e->getMessage(), 'limit: 4 hours'));
+        assert_true(str_contains($e->getMessage(), 'Requested: 5 hours'));
+    }
 });
 
 test('booking under global 30 minute minimum is rejected', function () {
@@ -1230,6 +1281,7 @@ test('schema version is three after install', function () {
 test('admin list has no web remove path and rejects remove API', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = ['ops-admin' => 'Ops Admin'];
     $admin = plugin_admin('manager');
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'ops-admin']);
     $admins = $h->listPluginAdmins($pdo);
@@ -1406,6 +1458,7 @@ test('deleting one instrument leaves other instruments intact', function () {
 test('cli revoke removes non final admin and blocks last admin', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = ['alpha' => true, 'beta' => true];
     $admin = plugin_admin('manager');
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'alpha']);
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'beta']);
@@ -1619,6 +1672,243 @@ test('weekly limit error reports readable hours and minutes', function () {
         assert_true(str_contains($e->getMessage(), 'requested: 30 minutes'));
         assert_true(str_contains($e->getMessage(), 'limit: 1 hour 30 minutes'));
     }
+});
+
+test('admin can create and update a single tool row with positive hour limits', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
+    $created = $h->createInstrument($c, $pdo, $admin, [
+        'name' => 'AFM-01',
+        'description' => 'Atomic Force Microscope',
+        'maxBookingHours' => 2,
+        'weeklyQuotaHours' => 8,
+    ])['instrument'];
+    assert_true($created['maxBookingHours'] === 2);
+    assert_true($created['weeklyQuotaHours'] === 8);
+    $updated = $h->updateInstrument($c, $pdo, $admin, [
+        'instrumentCode' => $created['code'],
+        'name' => 'AFM-01',
+        'description' => 'Updated',
+        'maxBookingHours' => 3,
+        'weeklyQuotaHours' => 9,
+    ])['instrument'];
+    assert_true($updated['maxBookingHours'] === 3);
+    assert_true($updated['weeklyQuotaHours'] === 9);
+});
+
+test('tool settings reject non positive hour values', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $admin) {
+        $h->createInstrument($c, $pdo, $admin, [
+            'name' => 'Bad Max',
+            'description' => '',
+            'maxBookingHours' => 0,
+            'weeklyQuotaHours' => 4,
+        ]);
+    });
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $admin) {
+        $h->createInstrument($c, $pdo, $admin, [
+            'name' => 'Bad Weekly',
+            'description' => '',
+            'maxBookingHours' => 2,
+            'weeklyQuotaHours' => 0,
+        ]);
+    });
+});
+
+test('trsys admin can list dokuwiki candidate users', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = [
+        'manager' => 'Manager Name',
+        'test' => 'SY',
+        'user02' => 'John Smith',
+        'user03' => 'Jane Doe',
+    ];
+    $result = $h->listCandidateDokuWikiUsers($c, $pdo, plugin_admin('manager'));
+    assert_true($result['supported'] === true);
+    $names = array_map(static fn(array $row): string => $row['username'], $result['users']);
+    assert_true($names === ['test', 'user02', 'user03']);
+    assert_true($result['users'][0] === ['username' => 'test', 'displayName' => 'SY']);
+    foreach ($result['users'] as $user) {
+        assert_true(array_keys($user) === ['username', 'displayName']);
+    }
+});
+
+test('ordinary user cannot list dokuwiki candidate users', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->knownUsers = ['test' => 'SY'];
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+        $h->listCandidateDokuWikiUsers($c, $pdo, user('test'));
+    });
+});
+
+test('existing plugin admins are excluded from candidate users', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    grant_plugin_admin($pdo, 'ops-admin');
+    $h->knownUsers = [
+        'manager' => 'Manager',
+        'ops-admin' => 'Ops',
+        'test' => 'SY',
+    ];
+    $result = $h->listCandidateDokuWikiUsers($c, $pdo, plugin_admin('manager'));
+    $names = array_map(static fn(array $row): string => $row['username'], $result['users']);
+    assert_true($names === ['test']);
+});
+
+test('add administrator accepts one existing dokuwiki user', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = [
+        'manager' => 'Manager',
+        'test' => 'SY',
+        'twin-a' => 'Same Name',
+        'twin-b' => 'Same Name',
+    ];
+    $admin = plugin_admin('manager');
+    $added = $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'test'], 50)['admin'];
+    assert_true($added['username'] === 'test');
+    assert_true($added['displayName'] === 'SY');
+    assert_true($added['addedAt'] === 50);
+    $candidates = $h->listCandidateDokuWikiUsers($c, $pdo, $admin);
+    $names = array_map(static fn(array $row): string => $row['username'], $candidates['users']);
+    assert_true(!in_array('test', $names, true));
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'twin-a']);
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'twin-b']);
+    $admins = $h->listPluginAdmins($pdo);
+    $adminNames = array_map(static fn(array $row): string => $row['username'], $admins);
+    sort($adminNames);
+    assert_true($adminNames === ['manager', 'test', 'twin-a', 'twin-b']);
+});
+
+test('add administrator rejects arrays missing users and duplicates', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = ['manager' => true, 'test' => 'SY'];
+    $admin = plugin_admin('manager');
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $admin) {
+        $h->addPluginAdmin($c, $pdo, $admin, ['username' => ['test', 'other']]);
+    });
+    assert_error('DOKUWIKI_USER_NOT_FOUND', function () use ($h, $c, $pdo, $admin) {
+        $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'ghost']);
+    });
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->addPluginAdmin($c, $pdo, user('alice'), ['username' => 'test']);
+    });
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'test']);
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $admin) {
+        $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'test']);
+    });
+});
+
+test('add administrator fails when user disappears after listing', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $h->knownUsers = ['manager' => true, 'temp-user' => 'Temp'];
+    $listed = $h->listCandidateDokuWikiUsers($c, $pdo, plugin_admin('manager'));
+    assert_true($listed['users'][0]['username'] === 'temp-user');
+    unset($h->knownUsers['temp-user']);
+    assert_error('DOKUWIKI_USER_NOT_FOUND', function () use ($h, $c, $pdo) {
+        $h->addPluginAdmin($c, $pdo, plugin_admin('manager'), ['username' => 'temp-user']);
+    });
+});
+
+test('unsupported dokuwiki user enumeration returns explicit payload', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    $h->userEnumerationSupported = false;
+    $result = $h->listCandidateDokuWikiUsers($c, $pdo, plugin_admin('manager'));
+    assert_true($result['supported'] === false);
+    assert_true($result['users'] === []);
+    assert_true($result['message'] === 'The current DokuWiki authentication backend does not support listing users.');
+});
+
+test('plugin code updated timestamp uses newest included file', function () {
+    $h = new TestInstrumentBookingHelper();
+    $root = sys_get_temp_dir() . '/ib-updated-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    mkdir($root . '/db');
+    mkdir($root . '/tests');
+    file_put_contents($root . '/helper.php', "<?php\n");
+    file_put_contents($root . '/script.js', "console.log(1);\n");
+    file_put_contents($root . '/db/schema.sql', "SELECT 1;\n");
+    file_put_contents($root . '/README.md', "docs\n");
+    file_put_contents($root . '/tests/run.php', "<?php\n");
+    file_put_contents($root . '/.DS_Store', "ignore\n");
+    file_put_contents($root . '/plugin.info.txt', "date 2026-01-01\n");
+
+    touch($root . '/helper.php', 1700000000);
+    touch($root . '/script.js', 1700001000);
+    touch($root . '/db/schema.sql', 1700005000);
+    touch($root . '/README.md', 1800000000);
+    touch($root . '/tests/run.php', 1800000000);
+    touch($root . '/.DS_Store', 1800000000);
+    touch($root . '/plugin.info.txt', 1700002000);
+
+    $latest = $h->pluginCodeUpdatedTimestamp($root);
+    assert_true($latest === 1700005000, 'Expected subdirectory sql file mtime');
+    $meta = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($meta['timestamp'] === 1700005000);
+    assert_true($meta['date'] === $h->formatPluginUpdatedDate(1700005000, 'America/Los_Angeles'));
+    assert_true(!str_contains(json_encode($meta), $root));
+
+    // Cleanup
+    foreach ([$root . '/helper.php', $root . '/script.js', $root . '/db/schema.sql', $root . '/README.md', $root . '/tests/run.php', $root . '/.DS_Store', $root . '/plugin.info.txt'] as $file) {
+        @unlink($file);
+    }
+    @rmdir($root . '/db');
+    @rmdir($root . '/tests');
+    @rmdir($root);
+});
+
+test('plugin updated date uses America/Los_Angeles across UTC day boundary', function () {
+    $h = new TestInstrumentBookingHelper();
+    // 2026-07-23 00:30:00 UTC => 2026-07-22 17:30:00 America/Los_Angeles
+    $utcMorning = (new DateTimeImmutable('2026-07-23T00:30:00+00:00'))->getTimestamp();
+    assert_true($h->formatPluginUpdatedDate($utcMorning, 'America/Los_Angeles') === '2026-07-22');
+    // 2026-07-23 08:00:00 UTC => 2026-07-23 01:00:00 America/Los_Angeles
+    $utcLater = (new DateTimeImmutable('2026-07-23T08:00:00+00:00'))->getTimestamp();
+    assert_true($h->formatPluginUpdatedDate($utcLater, 'America/Los_Angeles') === '2026-07-23');
+});
+
+test('plugin updated meta falls back to plugin.info.txt when no code files exist', function () {
+    $h = new class extends TestInstrumentBookingHelper {
+        public function pluginCodeUpdatedTimestamp(?string $pluginRoot = null): ?int
+        {
+            return null;
+        }
+    };
+    $root = sys_get_temp_dir() . '/ib-fallback-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    file_put_contents($root . '/plugin.info.txt', "base x\ndate 2026-03-15\n");
+
+    $withInfo = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($withInfo['timestamp'] === null);
+    assert_true($withInfo['date'] === '2026-03-15');
+    assert_true(!str_contains(json_encode($withInfo), $root));
+
+    unlink($root . '/plugin.info.txt');
+    $empty = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($empty['timestamp'] === null);
+    assert_true($empty['date'] === null);
+    assert_true(!str_contains(json_encode($empty), $root));
+
+    @rmdir($root);
+});
+
+test('plugin info fallback date parses valid date field', function () {
+    $h = new TestInstrumentBookingHelper();
+    $root = sys_get_temp_dir() . '/ib-info-only-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    file_put_contents($root . '/plugin.info.txt', "base instrumentbooking\ndate 2025-12-31\n");
+    assert_true($h->pluginInfoFallbackDate($root) === '2025-12-31');
+    @unlink($root . '/plugin.info.txt');
+    assert_true($h->pluginInfoFallbackDate($root) === null);
+    @rmdir($root);
 });
 
 $failures = 0;

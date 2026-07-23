@@ -6,6 +6,9 @@ The plugin is designed for a small internal DokuWiki installation and relies on 
 
 - DokuWiki login is required for all AJAX operations.
 - Usernames and groups are read from the DokuWiki session, never from the request body.
+- TRSys administrator rights come only from the SQLite `plugin_admins` table.
+- Candidate administrators are enumerated with the current auth backend `retrieveUsers()` API when `canDo('getUsers')` is true; passwords, emails, and groups are never returned.
+- Adding an administrator re-validates the username with `getUserData()` before insert and rejects username arrays.
 - Write operations require DokuWiki CSRF validation.
 - SQL uses PDO prepared statements.
 - SQLite writes use `BEGIN IMMEDIATE` transactions for conflict checks and updates.

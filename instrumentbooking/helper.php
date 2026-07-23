@@ -190,25 +190,92 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
              FROM plugin_admins
              ORDER BY username COLLATE NOCASE'
         )->fetchAll();
-        return array_map(static function (array $row): array {
+        return array_map(function (array $row): array {
+            $username = (string)$row['username'];
             return [
-                'username' => (string)$row['username'],
+                'username' => $username,
+                'displayName' => $this->dokuWikiDisplayName($username),
                 'addedAt' => (int)$row['added_at'],
             ];
         }, $rows);
+    }
+
+    public function listCandidateDokuWikiUsers(array $config, PDO $pdo, array $context): array
+    {
+        $this->requireAuthenticated($context);
+        if (!$this->isPluginAdmin($pdo, $context)) {
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'Administrator access is required.', 403);
+        }
+        $this->assertSchemaCurrent($pdo);
+
+        if (!$this->dokuWikiCanListUsers()) {
+            return [
+                'supported' => false,
+                'users' => [],
+                'message' => 'The current DokuWiki authentication backend does not support listing users.',
+            ];
+        }
+
+        $admins = [];
+        foreach ($this->listPluginAdmins($pdo) as $admin) {
+            $admins[strtolower($admin['username'])] = true;
+        }
+
+        $users = [];
+        foreach ($this->retrieveDokuWikiUsers() as $username => $displayName) {
+            $username = (string)$username;
+            if ($username === '' || isset($admins[strtolower($username)])) {
+                continue;
+            }
+            $users[] = [
+                'username' => $username,
+                'displayName' => (string)$displayName,
+            ];
+        }
+
+        usort($users, static function (array $a, array $b): int {
+            return strcasecmp($a['username'], $b['username']);
+        });
+
+        return [
+            'supported' => true,
+            'users' => $users,
+        ];
     }
 
     public function addPluginAdmin(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
         $this->requireAdmin($config, $pdo, $context);
         $this->assertSchemaCurrent($pdo);
+
+        if (array_key_exists('username', $input) && is_array($input['username'])) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'Only one administrator username can be added at a time.',
+                400
+            );
+        }
+
         $username = $this->cleanText($this->requireString($input, 'username', 255), 255);
+        if ($username === '') {
+            throw new InstrumentBookingException('INVALID_INPUT', 'Username is required.', 400);
+        }
+        if (!$this->dokuWikiUserExists($username)) {
+            throw new InstrumentBookingException(
+                'DOKUWIKI_USER_NOT_FOUND',
+                'The DokuWiki user does not exist.',
+                404
+            );
+        }
         $now = $nowTimestamp ?? time();
 
         $this->beginImmediate($pdo);
         try {
             if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
+            if ($this->findPluginAdmin($pdo, $username) !== null) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'That administrator already exists.', 409);
             }
             $stmt = $pdo->prepare(
                 'INSERT INTO plugin_admins (username, added_at, added_by)
@@ -223,11 +290,15 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return [
                 'admin' => [
                     'username' => $username,
+                    'displayName' => $this->dokuWikiDisplayName($username),
                     'addedAt' => $now,
                 ],
             ];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
+            if ($e instanceof InstrumentBookingException) {
+                throw $e;
+            }
             if ($this->isUniqueConstraintException($e)) {
                 throw new InstrumentBookingException('INVALID_INPUT', 'That administrator already exists.', 409);
             }
@@ -341,6 +412,182 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
 
         return false;
+    }
+
+    public function dokuWikiCanListUsers(): bool
+    {
+        global $auth;
+        if (!isset($auth) || !is_object($auth)) {
+            return false;
+        }
+        if (method_exists($auth, 'canDo')) {
+            return (bool)$auth->canDo('getUsers');
+        }
+        return method_exists($auth, 'retrieveUsers');
+    }
+
+    public function dokuWikiDisplayName(string $username): string
+    {
+        $info = $this->dokuWikiUserInfo($username);
+        if ($info === null) {
+            return '';
+        }
+        $name = trim((string)($info['name'] ?? ''));
+        return $name;
+    }
+
+    /**
+     * @return array<string, string> username => displayName
+     */
+    public function retrieveDokuWikiUsers(): array
+    {
+        global $auth;
+        if (!$this->dokuWikiCanListUsers()) {
+            return [];
+        }
+
+        $raw = $auth->retrieveUsers(0, 0, []);
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $users = [];
+        foreach ($raw as $username => $info) {
+            $username = is_string($username) ? $username : '';
+            if ($username === '') {
+                continue;
+            }
+            $displayName = '';
+            if (is_array($info) && isset($info['name'])) {
+                $displayName = trim((string)$info['name']);
+            }
+            $users[$username] = $displayName;
+        }
+        return $users;
+    }
+
+    public function dokuWikiUserInfo(string $username): ?array
+    {
+        $username = trim($username);
+        if ($username === '') {
+            return null;
+        }
+
+        global $auth;
+        if (isset($auth) && is_object($auth) && method_exists($auth, 'getUserData')) {
+            $data = $auth->getUserData($username);
+            return is_array($data) ? $data : null;
+        }
+
+        if (function_exists('auth_getUserData')) {
+            $data = auth_getUserData($username);
+            return is_array($data) ? $data : null;
+        }
+
+        return null;
+    }
+
+    public function pluginCodeUpdatedTimestamp(?string $pluginRoot = null): ?int
+    {
+        $root = $pluginRoot ?? __DIR__;
+        $root = realpath($root);
+        if ($root === false || !is_dir($root)) {
+            return null;
+        }
+
+        $excludeDirs = ['.git' => true, 'tests' => true];
+        $excludeFiles = [
+            'readme.md' => true,
+            'install.md' => true,
+            'security.md' => true,
+            'license' => true,
+            'third_party_licenses.md' => true,
+            '.ds_store' => true,
+        ];
+        $includeExtensions = [
+            'php' => true,
+            'js' => true,
+            'css' => true,
+            'sql' => true,
+        ];
+
+        $latest = null;
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $fileInfo) {
+            if (!$fileInfo->isFile()) {
+                continue;
+            }
+            $relative = substr($fileInfo->getPathname(), strlen($root) + 1);
+            $relative = str_replace('\\', '/', $relative);
+            $parts = explode('/', $relative);
+            if (isset($excludeDirs[$parts[0]])) {
+                continue;
+            }
+            $basename = strtolower($fileInfo->getFilename());
+            if (isset($excludeFiles[$basename])) {
+                continue;
+            }
+            $extension = strtolower($fileInfo->getExtension());
+            $included = isset($includeExtensions[$extension]) || $basename === 'plugin.info.txt';
+            if (!$included) {
+                continue;
+            }
+            $mtime = $fileInfo->getMTime();
+            if (!is_int($mtime) || $mtime <= 0) {
+                continue;
+            }
+            if ($latest === null || $mtime > $latest) {
+                $latest = $mtime;
+            }
+        }
+
+        return $latest;
+    }
+
+    public function pluginInfoFallbackDate(?string $pluginRoot = null): ?string
+    {
+        $root = $pluginRoot ?? __DIR__;
+        $path = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'plugin.info.txt';
+        if (!is_file($path)) {
+            return null;
+        }
+        $contents = @file_get_contents($path);
+        if (!is_string($contents)) {
+            return null;
+        }
+        if (preg_match('/^date\s+(\d{4}-\d{2}-\d{2})\s*$/mi', $contents, $matches) !== 1) {
+            return null;
+        }
+        return $matches[1];
+    }
+
+    public function formatPluginUpdatedDate(int $timestamp, string $timezone): string
+    {
+        return (new DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new DateTimeZone($timezone))
+            ->format('Y-m-d');
+    }
+
+    /**
+     * @return array{timestamp:?int, date:?string}
+     */
+    public function pluginUpdatedMeta(?string $pluginRoot = null, ?string $timezone = null): array
+    {
+        $timezone = $timezone ?: 'America/Los_Angeles';
+        $timestamp = $this->pluginCodeUpdatedTimestamp($pluginRoot);
+        if ($timestamp !== null) {
+            return [
+                'timestamp' => $timestamp,
+                'date' => $this->formatPluginUpdatedDate($timestamp, $timezone),
+            ];
+        }
+        $fallback = $this->pluginInfoFallbackDate($pluginRoot);
+        return [
+            'timestamp' => null,
+            'date' => $fallback,
+        ];
     }
 
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
@@ -1221,12 +1468,21 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $durationSeconds = $end - $start;
         $minSeconds = 30 * 60;
-        $maxSeconds = (int)$instrument['max_booking_minutes'] * 60;
+        $maxMinutes = (int)$instrument['max_booking_minutes'];
+        $maxSeconds = $maxMinutes * 60;
         if ($durationSeconds < $minSeconds) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The booking is shorter than the minimum duration for this instrument.', 400);
         }
         if ($durationSeconds > $maxSeconds) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'The booking exceeds the maximum duration for this instrument.', 400);
+            $requestedMinutes = intdiv($durationSeconds, 60);
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'The booking exceeds the maximum duration for this instrument. Requested: '
+                    . $this->formatMinutes($requestedMinutes)
+                    . ', limit: '
+                    . $this->formatMinutes($maxMinutes) . '.',
+                400
+            );
         }
 
         return [$start, $end];
@@ -1516,11 +1772,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $name = $this->cleanText($this->requireString($input, 'name', 120), 120);
         $description = $this->cleanText($this->optionalString($input, 'description', 1000), 1000, true);
         $maxHours = $this->requireHourRule($input, 'maxBookingHours', false);
-        $weeklyHours = $this->requireHourRule($input, 'weeklyQuotaHours', true);
-        if ($weeklyHours !== 0 && $weeklyHours < $maxHours) {
+        $weeklyHours = $this->requireHourRule($input, 'weeklyQuotaHours', false);
+        if ($weeklyHours < $maxHours) {
             throw new InstrumentBookingException(
                 'INVALID_INPUT',
-                'The weekly limit must be zero or at least the maximum booking duration.',
+                'The weekly limit must be at least the maximum booking duration.',
                 400
             );
         }

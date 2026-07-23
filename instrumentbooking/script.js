@@ -53,15 +53,18 @@
             weekNowLineFrame: null,
             weekNowLineResizeHandler: null,
             weekNowLinePageHideHandler: null,
+            updatedTimestamp: Number(root.getAttribute('data-updated-timestamp') || '') || 0,
             updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
         };
 
         root.textContent = '';
         root.appendChild(buildShell(state));
+        root.appendChild(buildDeleteConfirmDialog(state, root.querySelector('.ib-settings-overlay')));
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
+            refreshUpdatedLabel(state);
             state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
             var settingsButton = root.querySelector('.ib-settings-button');
@@ -108,12 +111,10 @@
         var appTitle = el('h1', 'ib-app-title');
         appTitle.textContent = 'TRSys';
         titleRow.appendChild(appTitle);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
-            var updated = el('time', 'ib-app-updated');
-            updated.setAttribute('datetime', state.updatedDate);
-            updated.textContent = 'Last updated: ' + state.updatedDate;
-            titleRow.appendChild(updated);
-        }
+        var updated = el('time', 'ib-app-updated');
+        updated.hidden = true;
+        titleRow.appendChild(updated);
+        refreshUpdatedLabel(state);
         var subtitle = el('p', 'ib-app-subtitle');
         subtitle.textContent = 'Tool Reservation System';
         identity.appendChild(titleRow);
@@ -204,8 +205,8 @@
             },
             headerToolbar: {
                 left: 'prev,next today',
-                center: 'title',
-                right: ''
+                center: '',
+                right: 'title'
             },
             buttonText: {
                 today: 'Today'
@@ -218,20 +219,15 @@
                 clearWeekNowLines(root);
             },
             select: function (selection) {
+                var startIso = ensureExplicitOffset(selection.startStr, state.timezone);
                 var selectedDuration = selection.end.getTime() - selection.start.getTime();
                 var endIso = selectedDuration <= 30 * 60 * 1000
-                    ? fromDatetimeInput(
-                        toDatetimeInput(
-                            new Date(selection.start.getTime() + 60 * 60 * 1000).toISOString(),
-                            state.timezone
-                        ),
-                        state.timezone
-                    )
+                    ? addMinutesToIso(startIso, 60, state.timezone)
                     : ensureExplicitOffset(selection.endStr, state.timezone);
                 openDialog(root, state, {
                     mode: 'create',
                     instrumentCode: state.selectedInstrument,
-                    start: ensureExplicitOffset(selection.startStr, state.timezone),
+                    start: startIso,
                     end: endIso,
                     note: '',
                     eventType: 'booking',
@@ -488,14 +484,14 @@
     }
 
     function buildDialog(state) {
-        var overlay = el('div', 'ib-dialog-overlay');
+        var overlay = el('div', 'ib-dialog-overlay ib-event-dialog-overlay');
         overlay.hidden = true;
 
         var dialog = el('div', 'ib-dialog');
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
 
-        var closeButton = button('button', '×');
+        var closeButton = button('button', '');
         closeButton.className += ' ib-dialog-close ib-danger';
         closeButton.setAttribute('aria-label', 'Close');
         closeButton.addEventListener('click', function () {
@@ -586,7 +582,7 @@
         dialog.setAttribute('aria-modal', 'true');
         dialog.setAttribute('aria-labelledby', 'ib-settings-title');
 
-        var closeButton = button('button', '×');
+        var closeButton = button('button', '');
         closeButton.className += ' ib-dialog-close ib-danger';
         closeButton.setAttribute('aria-label', 'Close settings');
         closeButton.addEventListener('click', function () {
@@ -608,42 +604,81 @@
         var message = el('p', 'ib-dialog-message ib-settings-message');
         dialog.appendChild(message);
 
-        var adminsSection = el('section', 'ib-settings-section');
-        var adminsTitle = el('h4', 'ib-settings-section-title');
-        adminsTitle.textContent = 'Administrators';
-        adminsSection.appendChild(adminsTitle);
-        var adminsHelp = el('p', 'ib-settings-empty');
-        adminsHelp.textContent = 'Admins can be viewed and added here. Use the server CLI to revoke access.';
-        adminsSection.appendChild(adminsHelp);
-        adminsSection.appendChild(el('div', 'ib-admin-list'));
-        var addAdminForm = el('form', 'ib-admin-add-form');
-        addAdminForm.appendChild(settingsTextField('username', 'Add administrator username', '', 255, true));
-        var addAdminButton = button('submit', 'Add Admin');
-        addAdminForm.appendChild(addAdminButton);
-        addAdminForm.addEventListener('submit', function (event) {
-            event.preventDefault();
-            submitAddAdmin(state, overlay, addAdminForm);
-        });
-        adminsSection.appendChild(addAdminForm);
-        dialog.appendChild(adminsSection);
-
         var toolsSection = el('section', 'ib-settings-section');
         var toolsTitle = el('h4', 'ib-settings-section-title');
         toolsTitle.textContent = 'Tools';
         toolsSection.appendChild(toolsTitle);
+
+        var tableWrap = el('div', 'ib-tools-table-wrap');
+        var table = document.createElement('table');
+        table.className = 'ib-tools-table';
+        var thead = document.createElement('thead');
+        var headRow = document.createElement('tr');
+        ['Tool Name', 'Description', 'Max Booking (hours)', 'Weekly Quota (hours)', 'Actions'].forEach(function (label) {
+            var th = document.createElement('th');
+            th.textContent = label;
+            headRow.appendChild(th);
+        });
+        thead.appendChild(headRow);
+        table.appendChild(thead);
+        var tbody = document.createElement('tbody');
+        tbody.className = 'ib-tools-table-body';
+        table.appendChild(tbody);
+        tableWrap.appendChild(table);
+        toolsSection.appendChild(tableWrap);
+
         var actions = el('div', 'ib-settings-actions');
-        var addButton = button('button', 'Add instrument');
+        var addButton = button('button', 'Add Tool');
+        addButton.className += ' ib-add-tool-button';
         addButton.addEventListener('click', function () {
-            overlay.querySelector('.ib-settings-list').prepend(buildInstrumentSettingsForm(state, overlay, null));
+            if (state.saving || overlay._settingsBusy || tbody.querySelector('.ib-tool-row-create')) {
+                return;
+            }
+            var empty = tbody.querySelector('.ib-tools-empty-row');
+            if (empty) {
+                empty.remove();
+            }
+            tbody.appendChild(buildToolTableRow(state, overlay, null));
         });
         actions.appendChild(addButton);
         toolsSection.appendChild(actions);
-        toolsSection.appendChild(el('div', 'ib-settings-list'));
         dialog.appendChild(toolsSection);
+
+        var adminsSection = el('section', 'ib-settings-section');
+        var adminsTitle = el('h4', 'ib-settings-section-title');
+        adminsTitle.textContent = 'TRSys Administrators';
+        adminsSection.appendChild(adminsTitle);
+        var adminsHelp = el('p', 'ib-settings-empty');
+        adminsHelp.textContent = 'Administrators can be added here. Use the server CLI to revoke access.';
+        adminsSection.appendChild(adminsHelp);
+        adminsSection.appendChild(el('div', 'ib-admin-list'));
+        dialog.appendChild(adminsSection);
+
+        var usersSection = el('section', 'ib-settings-section');
+        var usersTitle = el('h4', 'ib-settings-section-title');
+        usersTitle.textContent = 'Available DokuWiki Users';
+        usersSection.appendChild(usersTitle);
+        var userSearch = settingsPlainTextField('userSearch', 'Search users', '', 120, false);
+        userSearch.className += ' ib-user-search-field';
+        usersSection.appendChild(userSearch);
+        usersSection.appendChild(el('div', 'ib-user-candidate-list'));
+        var userMessage = el('p', 'ib-settings-empty ib-user-candidate-message');
+        usersSection.appendChild(userMessage);
+        var addAdminButton = button('button', 'Add Administrator');
+        addAdminButton.className += ' ib-add-admin-button';
+        addAdminButton.disabled = true;
+        addAdminButton.addEventListener('click', function () {
+            submitAddAdmin(state, overlay);
+        });
+        usersSection.appendChild(addAdminButton);
+        userSearch.querySelector('input').addEventListener('input', function () {
+            filterCandidateUsers(overlay);
+        });
+        dialog.appendChild(usersSection);
 
         overlay.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && !state.saving) {
-                var confirm = overlay.querySelector('.ib-delete-confirm');
+                var confirm = state.root.querySelector('.ib-delete-confirm');
                 if (confirm && !confirm.hidden) {
                     confirm.hidden = true;
                     return;
@@ -652,7 +687,6 @@
             }
         });
         overlay.appendChild(dialog);
-        overlay.appendChild(buildDeleteConfirmDialog(state, overlay));
         return overlay;
     }
 
@@ -669,7 +703,7 @@
         var warning = el('p', 'ib-delete-warning');
         warning.textContent = 'This permanently deletes the tool and all of its bookings and outages. This cannot be undone.';
         dialog.appendChild(warning);
-        dialog.appendChild(settingsTextField('confirmName', 'Type the exact tool name to confirm', '', 120, true));
+        dialog.appendChild(settingsPlainTextField('confirmName', 'Type the exact tool name to confirm', '', 120, true));
         var message = el('p', 'ib-dialog-message ib-delete-message');
         dialog.appendChild(message);
         var buttons = el('div', 'ib-dialog-buttons');
@@ -704,12 +738,21 @@
         var overlay = state.root.querySelector('.ib-settings-overlay');
         overlay.hidden = false;
         setSettingsMessage(overlay, 'Loading settings...', false);
-        api(state, 'GET', 'admin/instruments', {}).then(function (data) {
+        setCandidateMessage(overlay, '', false);
+        overlay._candidateUsers = [];
+        clearCandidateSelection(overlay);
+        Promise.all([
+            api(state, 'GET', 'admin/instruments', {}),
+            api(state, 'GET', 'admin/users', {})
+        ]).then(function (results) {
+            var data = results[0];
+            var usersData = results[1];
             renderAdminList(overlay, data.admins || []);
             renderInstrumentSettings(state, overlay, data.instruments || []);
+            renderCandidateUsers(overlay, usersData);
             setSettingsMessage(overlay, '', false);
         }).catch(function (err) {
-            setSettingsMessage(overlay, err.message || 'Unable to load instrument settings.', true);
+            setSettingsMessage(overlay, err.message || 'Unable to load settings.', true);
         });
     }
 
@@ -726,9 +769,14 @@
             var row = el('div', 'ib-admin-row');
             var name = el('span', 'ib-admin-username');
             name.textContent = admin.username;
+            row.appendChild(name);
+            if (admin.displayName) {
+                var display = el('span', 'ib-admin-display-name');
+                display.textContent = admin.displayName;
+                row.appendChild(display);
+            }
             var added = el('span', 'ib-admin-added');
             added.textContent = 'Added ' + formatAdminDate(admin.addedAt);
-            row.appendChild(name);
             row.appendChild(added);
             list.appendChild(row);
         });
@@ -742,134 +790,311 @@
         return date.toISOString().slice(0, 10);
     }
 
-    function submitAddAdmin(state, overlay, form) {
-        if (state.saving) {
+    function renderCandidateUsers(overlay, usersData) {
+        var list = overlay.querySelector('.ib-user-candidate-list');
+        list.textContent = '';
+        clearCandidateSelection(overlay);
+        if (!usersData || usersData.supported === false) {
+            overlay._candidateUsers = [];
+            setCandidateMessage(
+                overlay,
+                (usersData && usersData.message)
+                    || 'The current DokuWiki authentication backend does not support listing users.',
+                true
+            );
+            return;
+        }
+        overlay._candidateUsers = usersData.users || [];
+        if (!overlay._candidateUsers.length) {
+            setCandidateMessage(overlay, 'No available DokuWiki users to add.', false);
+            filterCandidateUsers(overlay);
+            return;
+        }
+        setCandidateMessage(overlay, '', false);
+        filterCandidateUsers(overlay);
+    }
+
+    function filterCandidateUsers(overlay) {
+        var list = overlay.querySelector('.ib-user-candidate-list');
+        var addButton = overlay.querySelector('.ib-add-admin-button');
+        var searchInput = overlay.querySelector('[name="userSearch"]');
+        var query = ((searchInput && searchInput.value) || '').trim().toLowerCase();
+        var users = overlay._candidateUsers || [];
+        list.textContent = '';
+        var selected = overlay._selectedCandidate || '';
+        var matched = users.filter(function (user) {
+            if (!query) {
+                return true;
+            }
+            return String(user.username).toLowerCase().indexOf(query) !== -1
+                || String(user.displayName || '').toLowerCase().indexOf(query) !== -1;
+        });
+        matched.forEach(function (user) {
+            var label = el('label', 'ib-user-candidate-row');
+            var radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'candidateUser';
+            radio.value = user.username;
+            radio.checked = selected === user.username;
+            radio.addEventListener('change', function () {
+                overlay._selectedCandidate = user.username;
+                addButton.disabled = stateSavingOrEmpty(overlay);
+            });
+            var username = el('span', 'ib-user-candidate-username');
+            username.textContent = user.username;
+            label.appendChild(radio);
+            label.appendChild(username);
+            if (user.displayName) {
+                var display = el('span', 'ib-user-candidate-display');
+                display.textContent = user.displayName;
+                label.appendChild(display);
+            }
+            list.appendChild(label);
+        });
+        if (selected && !matched.some(function (user) { return user.username === selected; })) {
+            overlay._selectedCandidate = '';
+        }
+        addButton.disabled = !overlay._selectedCandidate || !!overlay._settingsBusy;
+        if (!matched.length && users.length) {
+            setCandidateMessage(overlay, 'No users match the current search.', false);
+        } else if (users.length) {
+            setCandidateMessage(overlay, '', false);
+        }
+    }
+
+    function stateSavingOrEmpty(overlay) {
+        return !overlay._selectedCandidate || !!overlay._settingsBusy;
+    }
+
+    function clearCandidateSelection(overlay) {
+        overlay._selectedCandidate = '';
+        var addButton = overlay.querySelector('.ib-add-admin-button');
+        if (addButton) {
+            addButton.disabled = true;
+        }
+        var search = overlay.querySelector('[name="userSearch"]');
+        if (search) {
+            search.value = '';
+        }
+    }
+
+    function setCandidateMessage(overlay, message, isError) {
+        var node = overlay.querySelector('.ib-user-candidate-message');
+        if (!node) {
+            return;
+        }
+        node.textContent = message;
+        node.classList.toggle('is-error', !!isError);
+        node.hidden = !message;
+    }
+
+    function submitAddAdmin(state, overlay) {
+        if (state.saving || overlay._settingsBusy) {
+            return;
+        }
+        var username = overlay._selectedCandidate || '';
+        if (!username) {
             return;
         }
         state.saving = true;
+        overlay._settingsBusy = true;
+        setSettingsBusy(overlay, true);
         setSettingsMessage(overlay, 'Adding administrator...', false);
         api(state, 'POST', 'admin/users/add', {
-            username: getValue(form, 'username')
+            username: username
         }).then(function () {
-            setValue(form, 'username', '');
-            return api(state, 'GET', 'admin/instruments', {});
-        }).then(function (data) {
-            renderAdminList(overlay, data.admins || []);
-            renderInstrumentSettings(state, overlay, data.instruments || []);
+            return Promise.all([
+                api(state, 'GET', 'admin/instruments', {}),
+                api(state, 'GET', 'admin/users', {})
+            ]);
+        }).then(function (results) {
+            renderAdminList(overlay, results[0].admins || []);
+            renderInstrumentSettings(state, overlay, results[0].instruments || []);
+            renderCandidateUsers(overlay, results[1]);
             setSettingsMessage(overlay, 'Administrator added.', false);
         }).catch(function (err) {
             setSettingsMessage(overlay, err.message || 'Unable to add administrator.', true);
         }).finally(function () {
             state.saving = false;
+            overlay._settingsBusy = false;
+            setSettingsBusy(overlay, false);
+            filterCandidateUsers(overlay);
         });
     }
 
     function renderInstrumentSettings(state, overlay, instruments) {
-        var list = overlay.querySelector('.ib-settings-list');
-        list.textContent = '';
+        var body = overlay.querySelector('.ib-tools-table-body');
+        body.textContent = '';
         instruments.forEach(function (instrument) {
-            list.appendChild(buildInstrumentSettingsForm(state, overlay, instrument));
+            body.appendChild(buildToolTableRow(state, overlay, instrument));
         });
         if (instruments.length === 0) {
-            var empty = el('p', 'ib-settings-empty');
-            empty.textContent = 'No tools are currently available.';
-            list.appendChild(empty);
+            var emptyRow = document.createElement('tr');
+            emptyRow.className = 'ib-tools-empty-row';
+            var cell = document.createElement('td');
+            cell.colSpan = 5;
+            cell.textContent = 'No tools are currently available.';
+            emptyRow.appendChild(cell);
+            body.appendChild(emptyRow);
         }
     }
 
-    function buildInstrumentSettingsForm(state, overlay, instrument) {
-        var form = el('form', 'ib-settings-card');
-        var isCreate = !instrument;
-        var cardTitle = el('h4', 'ib-settings-card-title');
-        cardTitle.textContent = isCreate ? 'New instrument' : instrument.name;
-        form.appendChild(cardTitle);
-        form.appendChild(settingsTextField('name', 'Name', instrument ? instrument.name : '', 120, true));
-        form.appendChild(settingsTextArea('description', 'Description', instrument ? instrument.description : '', 1000));
-        form.appendChild(settingsNumberField(
-            'maxBookingHours',
-            'Maximum duration per booking (hours)',
-            instrument ? instrument.maxBookingHours : 4,
-            1
-        ));
-        form.appendChild(settingsNumberField(
-            'weeklyQuotaHours',
-            'Weekly limit per user (hours, 0 for unlimited)',
-            instrument ? instrument.weeklyQuotaHours : 0,
-            0
-        ));
-
-        var buttons = el('div', 'ib-dialog-buttons');
-        if (isCreate) {
-            var discard = button('button', 'Discard');
-            discard.className += ' ib-danger';
-            discard.addEventListener('click', function () {
-                form.remove();
-            });
-            buttons.appendChild(discard);
-        } else {
-            var deleteButton = button('button', 'Delete Tool');
-            deleteButton.className += ' ib-danger';
-            deleteButton.addEventListener('click', function () {
-                openDeleteConfirm(state, overlay, instrument);
-            });
-            buttons.appendChild(deleteButton);
+    function buildToolTableRow(state, overlay, instrument) {
+        var row = document.createElement('tr');
+        row.className = instrument ? 'ib-tool-row' : 'ib-tool-row ib-tool-row-create';
+        if (instrument) {
+            row.dataset.instrumentCode = instrument.code;
         }
-        var save = button('submit', isCreate ? 'Create instrument' : 'Save changes');
-        buttons.appendChild(save);
-        form.appendChild(buttons);
 
-        form.addEventListener('submit', function (event) {
-            event.preventDefault();
-            if (state.saving) {
-                return;
-            }
-            var payload = {
-                name: getValue(form, 'name'),
-                description: getValue(form, 'description'),
-                maxBookingHours: Number(getValue(form, 'maxBookingHours')),
-                weeklyQuotaHours: Number(getValue(form, 'weeklyQuotaHours'))
-            };
-            if (!isCreate) {
-                payload.instrumentCode = instrument.code;
-            }
-            state.saving = true;
-            overlay.querySelectorAll('button, input, textarea').forEach(function (control) {
-                control.disabled = true;
+        row.appendChild(toolInputCell('name', 'text', instrument ? instrument.name : '', 120));
+        row.appendChild(toolInputCell('description', 'text', instrument ? instrument.description : '', 1000));
+        row.appendChild(toolInputCell('maxBookingHours', 'number', instrument ? instrument.maxBookingHours : 4, null, 1));
+        row.appendChild(toolInputCell('weeklyQuotaHours', 'number', instrument ? instrument.weeklyQuotaHours : 4, null, 1));
+
+        var actions = document.createElement('td');
+        actions.className = 'ib-tool-actions';
+        if (instrument) {
+            var save = button('button', 'Save');
+            save.addEventListener('click', function (event) {
+                event.preventDefault();
+                submitToolRow(state, overlay, row, false);
             });
-            setSettingsMessage(overlay, 'Saving settings...', false);
-            api(
-                state,
-                'POST',
-                isCreate ? 'admin/instrument/create' : 'admin/instrument/update',
-                payload
-            ).then(function () {
-                return refreshInstrumentData(state);
-            }).then(function () {
-                return api(state, 'GET', 'admin/instruments', {});
-            }).then(function (data) {
-                renderAdminList(overlay, data.admins || []);
-                renderInstrumentSettings(state, overlay, data.instruments || []);
-                setSettingsMessage(overlay, 'Settings saved.', false);
-            }).catch(function (err) {
-                setSettingsMessage(overlay, err.message || 'Unable to save instrument settings.', true);
-            }).finally(function () {
-                state.saving = false;
-                overlay.querySelectorAll('button, input, textarea').forEach(function (control) {
-                    control.disabled = false;
+            var del = button('button', 'Delete');
+            del.className += ' ib-danger';
+            del.addEventListener('click', function (event) {
+                event.preventDefault();
+                openDeleteConfirm(state, overlay, {
+                    code: instrument.code,
+                    name: getRowValue(row, 'name') || instrument.name
                 });
             });
+            actions.appendChild(save);
+            actions.appendChild(del);
+        } else {
+            var create = button('button', 'Create');
+            create.addEventListener('click', function (event) {
+                event.preventDefault();
+                submitToolRow(state, overlay, row, true);
+            });
+            var cancel = button('button', 'Cancel');
+            cancel.className += ' ib-danger';
+            cancel.addEventListener('click', function (event) {
+                event.preventDefault();
+                row.remove();
+                ensureToolsEmptyRow(overlay);
+            });
+            actions.appendChild(create);
+            actions.appendChild(cancel);
+        }
+        row.appendChild(actions);
+        return row;
+    }
+
+    function toolInputCell(name, type, value, maxLength, minimum) {
+        var cell = document.createElement('td');
+        var input = document.createElement('input');
+        input.className = 'ib-input ib-tool-input';
+        input.name = name;
+        input.type = type;
+        input.value = value == null ? '' : String(value);
+        if (maxLength) {
+            input.maxLength = maxLength;
+        }
+        if (type === 'number') {
+            input.min = String(minimum == null ? 1 : minimum);
+            input.max = '168';
+            input.step = '1';
+            input.required = true;
+        }
+        cell.appendChild(input);
+        return cell;
+    }
+
+    function getRowValue(row, name) {
+        var input = row.querySelector('[name="' + name + '"]');
+        return input ? input.value : '';
+    }
+
+    function ensureToolsEmptyRow(overlay) {
+        var body = overlay.querySelector('.ib-tools-table-body');
+        if (!body.querySelector('.ib-tool-row') && !body.querySelector('.ib-tools-empty-row')) {
+            var emptyRow = document.createElement('tr');
+            emptyRow.className = 'ib-tools-empty-row';
+            var cell = document.createElement('td');
+            cell.colSpan = 5;
+            cell.textContent = 'No tools are currently available.';
+            emptyRow.appendChild(cell);
+            body.appendChild(emptyRow);
+        }
+    }
+
+    function submitToolRow(state, overlay, row, isCreate) {
+        if (state.saving || overlay._settingsBusy) {
+            return;
+        }
+        var payload = {
+            name: getRowValue(row, 'name'),
+            description: getRowValue(row, 'description'),
+            maxBookingHours: Number(getRowValue(row, 'maxBookingHours')),
+            weeklyQuotaHours: Number(getRowValue(row, 'weeklyQuotaHours'))
+        };
+        if (!isCreate) {
+            payload.instrumentCode = row.dataset.instrumentCode;
+        }
+        state.saving = true;
+        overlay._settingsBusy = true;
+        setSettingsBusy(overlay, true);
+        setSettingsMessage(overlay, isCreate ? 'Creating tool...' : 'Saving tool...', false);
+        api(
+            state,
+            'POST',
+            isCreate ? 'admin/instrument/create' : 'admin/instrument/update',
+            payload
+        ).then(function () {
+            return refreshInstrumentData(state);
+        }).then(function () {
+            return api(state, 'GET', 'admin/instruments', {});
+        }).then(function (data) {
+            renderAdminList(overlay, data.admins || []);
+            renderInstrumentSettings(state, overlay, data.instruments || []);
+            setSettingsMessage(overlay, isCreate ? 'Tool created.' : 'Tool saved.', false);
+        }).catch(function (err) {
+            setSettingsMessage(overlay, err.message || 'Unable to save tool.', true);
+        }).finally(function () {
+            state.saving = false;
+            overlay._settingsBusy = false;
+            setSettingsBusy(overlay, false);
         });
-        return form;
+    }
+
+    function setSettingsBusy(overlay, busy) {
+        overlay.querySelectorAll('button, input, textarea').forEach(function (control) {
+            if (control.classList.contains('ib-dialog-close')) {
+                return;
+            }
+            control.disabled = !!busy;
+        });
+        var addAdmin = overlay.querySelector('.ib-add-admin-button');
+        if (addAdmin && !busy) {
+            addAdmin.disabled = !overlay._selectedCandidate;
+        }
     }
 
     function openDeleteConfirm(state, settingsOverlay, instrument) {
-        var confirm = settingsOverlay.querySelector('.ib-delete-confirm');
+        var confirm = state.root.querySelector('.ib-delete-confirm');
+        if (!confirm) {
+            setSettingsMessage(settingsOverlay, 'Unable to open the delete confirmation dialog.', true);
+            return;
+        }
         setDeleteMessage(confirm, 'Loading tool details...', false);
         confirm.hidden = false;
         confirm._instrumentCode = instrument.code;
         confirm._expectedName = instrument.name;
         setValue(confirm, 'confirmName', '');
-        confirm.querySelector('.ib-danger').disabled = true;
+        var destroyButton = confirm.querySelector('.ib-danger');
+        if (destroyButton) {
+            destroyButton.disabled = true;
+        }
         api(state, 'GET', 'admin/instrument/delete-preview', {
             instrumentCode: instrument.code
         }).then(function (data) {
@@ -928,7 +1153,7 @@
         node.classList.toggle('is-error', !!isError);
     }
 
-    function settingsTextField(name, label, value, maxLength, required) {
+    function settingsPlainTextField(name, label, value, maxLength, required) {
         var wrap = el('label', 'ib-field');
         wrap.appendChild(text(label));
         var input = document.createElement('input');
@@ -937,36 +1162,7 @@
         input.type = 'text';
         input.value = value;
         input.maxLength = maxLength;
-        input.required = required;
-        wrap.appendChild(input);
-        return wrap;
-    }
-
-    function settingsTextArea(name, label, value, maxLength) {
-        var wrap = el('label', 'ib-field');
-        wrap.appendChild(text(label));
-        var input = document.createElement('textarea');
-        input.className = 'ib-input';
-        input.name = name;
-        input.value = value;
-        input.maxLength = maxLength;
-        input.rows = 3;
-        wrap.appendChild(input);
-        return wrap;
-    }
-
-    function settingsNumberField(name, label, value, minimum) {
-        var wrap = el('label', 'ib-field');
-        wrap.appendChild(text(label));
-        var input = document.createElement('input');
-        input.className = 'ib-input';
-        input.name = name;
-        input.type = 'number';
-        input.value = String(value);
-        input.min = String(minimum);
-        input.max = '168';
-        input.step = '1';
-        input.required = true;
+        input.required = !!required;
         wrap.appendChild(input);
         return wrap;
     }
@@ -1003,7 +1199,10 @@
     }
 
     function openDialog(root, state, eventData) {
-        var overlay = root.querySelector('.ib-dialog-overlay');
+        var overlay = root.querySelector('.ib-event-dialog-overlay');
+        if (!overlay) {
+            return;
+        }
         overlay._eventData = eventData;
         var isCreate = eventData.mode === 'create';
         var canEdit = isCreate || eventData.canEdit;
@@ -1276,6 +1475,34 @@
         return parts.hour + ':' + parts.minute;
     }
 
+    function refreshUpdatedLabel(state) {
+        var node = state.root.querySelector('.ib-app-updated');
+        if (!node) {
+            return;
+        }
+        var date = '';
+        if (state.updatedTimestamp > 0 && state.timezone) {
+            date = formatDateInTimezone(state.updatedTimestamp * 1000, state.timezone);
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
+            date = state.updatedDate;
+        }
+        if (!date) {
+            node.hidden = true;
+            node.textContent = '';
+            node.removeAttribute('datetime');
+            return;
+        }
+        state.updatedDate = date;
+        node.hidden = false;
+        node.setAttribute('datetime', date);
+        node.textContent = 'Last updated: ' + date;
+    }
+
+    function formatDateInTimezone(timestampMs, timezone) {
+        var parts = zonedParts(new Date(timestampMs), timezone);
+        return parts.year + '-' + parts.month + '-' + parts.day;
+    }
+
     function ensureExplicitOffset(value, timezone) {
         if (/(Z|[+-]\d{2}:\d{2})$/i.test(value)) {
             return value;
@@ -1287,6 +1514,17 @@
         }
 
         return fromDatetimeInput(match[1], timezone);
+    }
+
+    function addMinutesToIso(iso, minutes, timezone) {
+        var date = new Date(iso);
+        if (!Number.isFinite(date.getTime())) {
+            return iso;
+        }
+        return fromDatetimeInput(
+            toDatetimeInput(new Date(date.getTime() + minutes * 60000).toISOString(), timezone),
+            timezone
+        );
     }
 
     function toDatetimeInput(iso, timezone) {
