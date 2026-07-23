@@ -18,7 +18,7 @@
         loadFullCalendar(root).then(function () {
             boot(root);
         }).catch(function () {
-            showFatal(root, '无法加载本地 FullCalendar 文件，请检查插件 vendor/fullcalendar 目录。');
+            showFatal(root, 'Unable to load the local FullCalendar file. Check the plugin vendor/fullcalendar directory.');
         });
     });
 
@@ -54,15 +54,15 @@
             state.isManager = !!data.isManager;
             state.instruments = data.instruments || [];
             if (state.instruments.length === 0) {
-                showStatus(root, '没有可用仪器。请确认你已登录，并且属于对应的 DokuWiki 用户组。', true);
+                showStatus(root, 'No instruments are available. Confirm that you are logged in and belong to the required DokuWiki group.', true);
                 return;
             }
             state.selectedInstrument = state.instruments[0].code;
             refreshInstrumentSelect(root, state);
             initCalendar(root, state);
-            showStatus(root, '实验室时区：' + state.timezone, false);
+            showStatus(root, 'Lab timezone: ' + state.timezone, false);
         }).catch(function (err) {
-            showStatus(root, err.message || '加载仪器失败。', true);
+            showStatus(root, err.message || 'Failed to load instruments.', true);
         });
     }
 
@@ -71,7 +71,7 @@
 
         var toolbar = el('div', 'ib-toolbar');
         var selectWrap = el('label', 'ib-field-inline');
-        selectWrap.appendChild(text('仪器'));
+        selectWrap.appendChild(text('Instrument'));
         var select = el('select', 'ib-instrument-select');
         select.addEventListener('change', function () {
             state.selectedInstrument = select.value;
@@ -103,11 +103,11 @@
         state.instruments.forEach(function (instrument) {
             var option = document.createElement('option');
             option.value = instrument.code;
-            option.textContent = instrument.name + (instrument.enabled ? '' : '（已停用）');
+            option.textContent = instrument.name + (instrument.enabled ? '' : ' (disabled)');
             select.appendChild(option);
         });
         select.value = state.selectedInstrument;
-        root.querySelector('.ib-timezone').textContent = '实验室时区：' + state.timezone;
+        root.querySelector('.ib-timezone').textContent = 'Lab timezone: ' + state.timezone;
     }
 
     function initCalendar(root, state) {
@@ -127,9 +127,9 @@
                 right: 'timeGridWeek,timeGridDay'
             },
             buttonText: {
-                today: '今天',
-                week: '周',
-                day: '日'
+                today: 'Today',
+                week: 'Week',
+                day: 'Day'
             },
             select: function (selection) {
                 openDialog(root, state, {
@@ -170,15 +170,15 @@
                         };
                     }));
                 }).catch(function (err) {
-                    showStatus(root, err.message || '加载预约失败。', true);
+                    showStatus(root, err.message || 'Failed to load bookings.', true);
                     failure(err);
                 });
             },
             loading: function (isLoading) {
                 if (isLoading) {
-                    showStatus(root, '正在加载预约...', false);
+                    showStatus(root, 'Loading bookings...', false);
                 } else {
-                    showStatus(root, '实验室时区：' + state.timezone, false);
+                    showStatus(root, 'Lab timezone: ' + state.timezone, false);
                 }
             }
         });
@@ -197,15 +197,15 @@
         dialog.appendChild(heading);
 
         var form = el('form', 'ib-form');
-        form.appendChild(field('title', '标题', 'text', 120));
-        form.appendChild(field('start', '开始时间', 'datetime-local', 64));
-        form.appendChild(field('end', '结束时间', 'datetime-local', 64));
+        form.appendChild(field('title', 'Title', 'text', 120));
+        form.appendChild(field('start', 'Start time', 'datetime-local', 64));
+        form.appendChild(field('end', 'End time', 'datetime-local', 64));
 
         var typeWrap = el('label', 'ib-field ib-event-type-field');
-        typeWrap.appendChild(text('类型'));
+        typeWrap.appendChild(text('Type'));
         var typeSelect = el('select', 'ib-input');
         typeSelect.name = 'eventType';
-        [['booking', '普通预约'], ['block', '维护/停机']].forEach(function (item) {
+        [['booking', 'Booking'], ['block', 'Maintenance/outage']].forEach(function (item) {
             var option = document.createElement('option');
             option.value = item[0];
             option.textContent = item[1];
@@ -215,7 +215,7 @@
         form.appendChild(typeWrap);
 
         var noteWrap = el('label', 'ib-field');
-        noteWrap.appendChild(text('备注'));
+        noteWrap.appendChild(text('Note'));
         var note = document.createElement('textarea');
         note.className = 'ib-input';
         note.name = 'note';
@@ -228,13 +228,13 @@
         form.appendChild(message);
 
         var buttons = el('div', 'ib-dialog-buttons');
-        var closeButton = button('button', '关闭');
+        var closeButton = button('button', 'Close');
         closeButton.addEventListener('click', function () {
             overlay.hidden = true;
         });
-        var cancelButton = button('button', '取消预约');
+        var cancelButton = button('button', 'Cancel booking');
         cancelButton.className += ' ib-danger';
-        var submitButton = button('submit', '保存');
+        var submitButton = button('submit', 'Save');
         buttons.appendChild(cancelButton);
         buttons.appendChild(closeButton);
         buttons.appendChild(submitButton);
@@ -259,7 +259,7 @@
         var isCreate = eventData.mode === 'create';
         var canEdit = isCreate || eventData.canEdit;
         var title = overlay.querySelector('.ib-dialog-title');
-        title.textContent = isCreate ? '创建预约' : (canEdit ? '修改预约' : '查看占用');
+        title.textContent = isCreate ? 'Create booking' : (canEdit ? 'Edit booking' : 'View reservation');
 
         setValue(overlay, 'title', eventData.title || '');
         setValue(overlay, 'start', toDatetimeInput(eventData.start, state.timezone));
@@ -276,8 +276,8 @@
         overlay.querySelector('[type="submit"]').hidden = !canEdit;
         overlay.querySelector('.ib-danger').hidden = !(eventData.canCancel && !isCreate);
         overlay.querySelector('.ib-dialog-message').textContent = canEdit
-            ? '时间按实验室时区填写。保存前会再次检查冲突和权限。'
-            : '其他用户的预约只显示占用时间。';
+            ? 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.'
+            : 'Bookings owned by other users only show reserved time.';
         overlay.hidden = false;
     }
 
@@ -306,7 +306,7 @@
             overlay.hidden = true;
             state.calendar.refetchEvents();
         }).catch(function (err) {
-            overlay.querySelector('.ib-dialog-message').textContent = err.message || '保存失败。';
+            overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Save failed.';
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -316,7 +316,7 @@
         if (state.saving || !overlay._eventData || !overlay._eventData.id) {
             return;
         }
-        if (!window.confirm('确定要取消该预约吗？')) {
+        if (!window.confirm('Cancel this booking?')) {
             return;
         }
         setSaving(state, overlay, true);
@@ -324,7 +324,7 @@
             overlay.hidden = true;
             state.calendar.refetchEvents();
         }).catch(function (err) {
-            overlay.querySelector('.ib-dialog-message').textContent = err.message || '取消失败。';
+            overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Cancel failed.';
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -351,11 +351,11 @@
 
         return fetch(url.toString(), options).then(function (response) {
             return response.json().catch(function () {
-                throw new Error('服务器返回了无效响应。');
+                throw new Error('The server returned an invalid response.');
             }).then(function (payload) {
                 if (!response.ok || !payload.ok) {
                     var error = payload && payload.error ? payload.error : {};
-                    throw new Error(error.message || '请求失败。');
+                    throw new Error(error.message || 'Request failed.');
                 }
                 return payload.data || {};
             });
@@ -371,7 +371,7 @@
         overlay.querySelectorAll('button').forEach(function (btn) {
             btn.disabled = saving;
         });
-        overlay.querySelector('[type="submit"]').textContent = saving ? '保存中...' : '保存';
+        overlay.querySelector('[type="submit"]').textContent = saving ? 'Saving...' : 'Save';
     }
 
     function findInstrument(state, code) {
