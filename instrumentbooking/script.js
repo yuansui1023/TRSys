@@ -59,6 +59,7 @@
 
         root.textContent = '';
         root.appendChild(buildShell(state));
+        root.appendChild(buildDeleteConfirmDialog(state, root.querySelector('.ib-settings-overlay')));
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
@@ -218,20 +219,15 @@
                 clearWeekNowLines(root);
             },
             select: function (selection) {
+                var startIso = ensureExplicitOffset(selection.startStr, state.timezone);
                 var selectedDuration = selection.end.getTime() - selection.start.getTime();
                 var endIso = selectedDuration <= 30 * 60 * 1000
-                    ? fromDatetimeInput(
-                        toDatetimeInput(
-                            new Date(selection.start.getTime() + 60 * 60 * 1000).toISOString(),
-                            state.timezone
-                        ),
-                        state.timezone
-                    )
+                    ? addMinutesToIso(startIso, 60, state.timezone)
                     : ensureExplicitOffset(selection.endStr, state.timezone);
                 openDialog(root, state, {
                     mode: 'create',
                     instrumentCode: state.selectedInstrument,
-                    start: ensureExplicitOffset(selection.startStr, state.timezone),
+                    start: startIso,
                     end: endIso,
                     note: '',
                     eventType: 'booking',
@@ -488,14 +484,14 @@
     }
 
     function buildDialog(state) {
-        var overlay = el('div', 'ib-dialog-overlay');
+        var overlay = el('div', 'ib-dialog-overlay ib-event-dialog-overlay');
         overlay.hidden = true;
 
         var dialog = el('div', 'ib-dialog');
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
 
-        var closeButton = button('button', '×');
+        var closeButton = button('button', '');
         closeButton.className += ' ib-dialog-close ib-danger';
         closeButton.setAttribute('aria-label', 'Close');
         closeButton.addEventListener('click', function () {
@@ -586,7 +582,7 @@
         dialog.setAttribute('aria-modal', 'true');
         dialog.setAttribute('aria-labelledby', 'ib-settings-title');
 
-        var closeButton = button('button', '×');
+        var closeButton = button('button', '');
         closeButton.className += ' ib-dialog-close ib-danger';
         closeButton.setAttribute('aria-label', 'Close settings');
         closeButton.addEventListener('click', function () {
@@ -643,7 +639,7 @@
 
         overlay.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && !state.saving) {
-                var confirm = overlay.querySelector('.ib-delete-confirm');
+                var confirm = state.root.querySelector('.ib-delete-confirm');
                 if (confirm && !confirm.hidden) {
                     confirm.hidden = true;
                     return;
@@ -652,7 +648,6 @@
             }
         });
         overlay.appendChild(dialog);
-        overlay.appendChild(buildDeleteConfirmDialog(state, overlay));
         return overlay;
     }
 
@@ -809,7 +804,12 @@
         } else {
             var deleteButton = button('button', 'Delete Tool');
             deleteButton.className += ' ib-danger';
-            deleteButton.addEventListener('click', function () {
+            deleteButton.addEventListener('click', function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                if (state.saving) {
+                    return;
+                }
                 openDeleteConfirm(state, overlay, instrument);
             });
             buttons.appendChild(deleteButton);
@@ -863,13 +863,20 @@
     }
 
     function openDeleteConfirm(state, settingsOverlay, instrument) {
-        var confirm = settingsOverlay.querySelector('.ib-delete-confirm');
+        var confirm = state.root.querySelector('.ib-delete-confirm');
+        if (!confirm) {
+            setSettingsMessage(settingsOverlay, 'Unable to open the delete confirmation dialog.', true);
+            return;
+        }
         setDeleteMessage(confirm, 'Loading tool details...', false);
         confirm.hidden = false;
         confirm._instrumentCode = instrument.code;
         confirm._expectedName = instrument.name;
         setValue(confirm, 'confirmName', '');
-        confirm.querySelector('.ib-danger').disabled = true;
+        var destroyButton = confirm.querySelector('.ib-danger');
+        if (destroyButton) {
+            destroyButton.disabled = true;
+        }
         api(state, 'GET', 'admin/instrument/delete-preview', {
             instrumentCode: instrument.code
         }).then(function (data) {
@@ -1003,7 +1010,10 @@
     }
 
     function openDialog(root, state, eventData) {
-        var overlay = root.querySelector('.ib-dialog-overlay');
+        var overlay = root.querySelector('.ib-event-dialog-overlay');
+        if (!overlay) {
+            return;
+        }
         overlay._eventData = eventData;
         var isCreate = eventData.mode === 'create';
         var canEdit = isCreate || eventData.canEdit;
@@ -1287,6 +1297,17 @@
         }
 
         return fromDatetimeInput(match[1], timezone);
+    }
+
+    function addMinutesToIso(iso, minutes, timezone) {
+        var date = new Date(iso);
+        if (!Number.isFinite(date.getTime())) {
+            return iso;
+        }
+        return fromDatetimeInput(
+            toDatetimeInput(new Date(date.getTime() + minutes * 60000).toISOString(), timezone),
+            timezone
+        );
     }
 
     function toDatetimeInput(iso, timezone) {

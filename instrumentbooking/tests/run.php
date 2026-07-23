@@ -638,9 +638,17 @@ test('end before start is rejected', function () {
 
 test('booking over max duration is rejected', function () {
     [$h, $c, $pdo] = fixture();
-    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T14:00:00-08:00']));
-    });
+    try {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T14:00:00-08:00',
+        ]));
+        throw new RuntimeException('Expected INVALID_INPUT');
+    } catch (InstrumentBookingException $e) {
+        assert_true($e->errorCode() === 'INVALID_INPUT');
+        assert_true(str_contains($e->getMessage(), 'limit: 4 hours'));
+        assert_true(str_contains($e->getMessage(), 'Requested: 5 hours'));
+    }
 });
 
 test('booking under global 30 minute minimum is rejected', function () {

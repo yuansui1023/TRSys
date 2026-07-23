@@ -1221,12 +1221,21 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $durationSeconds = $end - $start;
         $minSeconds = 30 * 60;
-        $maxSeconds = (int)$instrument['max_booking_minutes'] * 60;
+        $maxMinutes = (int)$instrument['max_booking_minutes'];
+        $maxSeconds = $maxMinutes * 60;
         if ($durationSeconds < $minSeconds) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The booking is shorter than the minimum duration for this instrument.', 400);
         }
         if ($durationSeconds > $maxSeconds) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'The booking exceeds the maximum duration for this instrument.', 400);
+            $requestedMinutes = intdiv($durationSeconds, 60);
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'The booking exceeds the maximum duration for this instrument. Requested: '
+                    . $this->formatMinutes($requestedMinutes)
+                    . ', limit: '
+                    . $this->formatMinutes($maxMinutes) . '.',
+                400
+            );
         }
 
         return [$start, $end];
