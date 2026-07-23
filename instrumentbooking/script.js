@@ -107,8 +107,6 @@
         selectWrap.appendChild(select);
         controls.appendChild(selectWrap);
 
-        var timezone = el('span', 'ib-timezone');
-        controls.appendChild(timezone);
         toolbar.appendChild(controls);
         shell.appendChild(toolbar);
 
@@ -133,7 +131,6 @@
             select.appendChild(option);
         });
         select.value = state.selectedInstrument;
-        root.querySelector('.ib-timezone').textContent = 'Lab timezone: ' + state.timezone;
     }
 
     function initCalendar(root, state) {
@@ -172,8 +169,8 @@
                 openDialog(root, state, {
                     mode: 'create',
                     instrumentCode: state.selectedInstrument,
-                    start: selection.startStr,
-                    end: selection.endStr,
+                    start: ensureExplicitOffset(selection.startStr, state.timezone),
+                    end: ensureExplicitOffset(selection.endStr, state.timezone),
                     title: '',
                     note: '',
                     eventType: 'booking',
@@ -188,8 +185,8 @@
             events: function (info, success, failure) {
                 api(state, 'GET', 'events', {
                     instrumentCode: state.selectedInstrument,
-                    start: info.startStr,
-                    end: info.endStr
+                    start: ensureExplicitOffset(info.startStr, state.timezone),
+                    end: ensureExplicitOffset(info.endStr, state.timezone)
                 }).then(function (data) {
                     var instrument = findInstrument(state, state.selectedInstrument);
                     var color = instrument ? instrument.color : '#64748b';
@@ -459,6 +456,19 @@
             + parseInt(hex.slice(2, 4), 16) + ', '
             + parseInt(hex.slice(4, 6), 16) + ', '
             + alpha + ')';
+    }
+
+    function ensureExplicitOffset(value, timezone) {
+        if (/(Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+            return value;
+        }
+
+        var match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/.exec(value);
+        if (!match) {
+            return value;
+        }
+
+        return fromDatetimeInput(match[1], timezone);
     }
 
     function toDatetimeInput(iso, timezone) {
