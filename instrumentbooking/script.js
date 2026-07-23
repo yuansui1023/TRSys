@@ -55,6 +55,8 @@
             weekNowLinePageHideHandler: null,
             weekViewStart: null,
             weekViewEnd: null,
+            timeSlotScrollInitialized: false,
+            calendarResizeObserver: null,
             updatedTimestamp: Number(root.getAttribute('data-updated-timestamp') || '') || 0,
             updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
@@ -183,6 +185,7 @@
 
     function initCalendar(root, state) {
         var calendarEl = root.querySelector('.ib-calendar');
+        state.timeSlotScrollInitialized = false;
         state.calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'timeGridWeek',
             timeZone: state.timezone,
@@ -190,8 +193,11 @@
             editable: false,
             nowIndicator: false,
             allDaySlot: false,
-            height: 'auto',
-            contentHeight: 'auto',
+            height: '100%',
+            handleWindowResize: true,
+            stickyHeaderDates: true,
+            scrollTime: '00:00:00',
+            scrollTimeReset: false,
             slotMinTime: '00:00:00',
             slotMaxTime: '24:00:00',
             slotDuration: '00:30:00',
@@ -220,6 +226,7 @@
                 state.weekViewEnd = info.endStr;
                 updateWeekTitle(calendarEl, formatWeekTitle(info.startStr, info.endStr, state.timezone));
                 scheduleWeekNowLines(root, state);
+                scheduleInitialTimeSlotScroll(root, state);
             },
             viewWillUnmount: function () {
                 clearWeekNowLines(root);
@@ -288,11 +295,84 @@
         var destroyCalendar = state.calendar.destroy.bind(state.calendar);
         state.calendar.destroy = function () {
             stopWeekNowLineSync(root, state);
+            disconnectCalendarResizeObserver(state);
             destroyCalendar();
         };
         state.calendar.render();
         startWeekNowLineSync(root, state);
+        observeCalendarResize(root, state, calendarEl);
         scheduleWeekNowLines(root, state);
+        scheduleInitialTimeSlotScroll(root, state);
+    }
+
+    function findTimegridBodyScroller(root) {
+        var body = root.querySelector('.fc-timegrid-body');
+        if (!body) {
+            return null;
+        }
+        return body.closest('.fc-scroller');
+    }
+
+    function scrollTimeSlotsToBottom(root) {
+        var scroller = findTimegridBodyScroller(root);
+        if (!scroller || scroller.clientHeight <= 0) {
+            return false;
+        }
+        if (scroller.scrollHeight <= scroller.clientHeight) {
+            return false;
+        }
+        scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+        return true;
+    }
+
+    function ensureInitialTimeSlotScroll(root, state) {
+        if (state.timeSlotScrollInitialized) {
+            return true;
+        }
+        if (!scrollTimeSlotsToBottom(root)) {
+            return false;
+        }
+        state.timeSlotScrollInitialized = true;
+        return true;
+    }
+
+    function scheduleInitialTimeSlotScroll(root, state) {
+        if (state.timeSlotScrollInitialized) {
+            return;
+        }
+        window.requestAnimationFrame(function () {
+            window.requestAnimationFrame(function () {
+                if (ensureInitialTimeSlotScroll(root, state)) {
+                    return;
+                }
+                window.setTimeout(function () {
+                    ensureInitialTimeSlotScroll(root, state);
+                }, 60);
+            });
+        });
+    }
+
+    function observeCalendarResize(root, state, calendarEl) {
+        disconnectCalendarResizeObserver(state);
+        if (typeof ResizeObserver === 'undefined') {
+            return;
+        }
+        state.calendarResizeObserver = new ResizeObserver(function () {
+            if (!state.calendar) {
+                return;
+            }
+            state.calendar.updateSize();
+            scheduleWeekNowLines(root, state);
+            scheduleInitialTimeSlotScroll(root, state);
+        });
+        state.calendarResizeObserver.observe(calendarEl);
+    }
+
+    function disconnectCalendarResizeObserver(state) {
+        if (state.calendarResizeObserver) {
+            state.calendarResizeObserver.disconnect();
+            state.calendarResizeObserver = null;
+        }
     }
 
     function formatWeekTitle(startStr, endStr, timezone) {
