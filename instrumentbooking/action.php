@@ -78,7 +78,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
             if ($helper->schemaVersion($pdo) !== helper_plugin_instrumentbooking::SCHEMA_VERSION) {
                 $data = [
                     'timezone' => $config['timezone'],
-                    'isManager' => $helper->isManager($config, $context, $pdo),
+                    'isAdmin' => $helper->isPluginAdmin($pdo, $context),
                     'instruments' => [],
                     'migrationRequired' => true,
                     'migrationMessage' => 'Run: php lib/plugins/instrumentbooking/bin/install.php',

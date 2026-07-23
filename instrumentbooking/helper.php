@@ -168,7 +168,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         return [
             'timezone' => $config['timezone'],
-            'isManager' => $this->isManager($config, $context, $pdo),
+            'isAdmin' => $this->isPluginAdmin($pdo, $context),
             'instruments' => $result,
         ];
     }
@@ -207,7 +207,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
-            if (!$this->isManager($config, $context, $pdo)) {
+            if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
             }
             $stmt = $pdo->prepare(
@@ -273,6 +273,45 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
+    public function bootstrapPluginAdminCli(PDO $pdo, string $username, ?int $nowTimestamp = null): array
+    {
+        $this->assertSchemaCurrent($pdo);
+        $username = $this->cleanText($username, 255);
+        $now = $nowTimestamp ?? time();
+        $this->beginImmediate($pdo);
+        try {
+            $count = (int)$pdo->query('SELECT COUNT(*) FROM plugin_admins')->fetchColumn();
+            if ($count > 0) {
+                throw new InstrumentBookingException(
+                    'INVALID_INPUT',
+                    'TRSys administrators already exist. Use Settings or revoke before bootstrapping.',
+                    409
+                );
+            }
+            $stmt = $pdo->prepare(
+                'INSERT INTO plugin_admins (username, added_at, added_by)
+                 VALUES (:username, :added_at, :added_by)'
+            );
+            $stmt->execute([
+                ':username' => $username,
+                ':added_at' => $now,
+                ':added_by' => 'cli-bootstrap',
+            ]);
+            $pdo->commit();
+            return [
+                'bootstrapped' => true,
+                'username' => $username,
+                'addedAt' => $now,
+            ];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw $e;
+        }
+    }
+
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
         $this->requireAdmin($config, $pdo, $context);
@@ -283,7 +322,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
-            if (!$this->isManager($config, $context, $pdo)) {
+            if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
             }
             $stmt = $pdo->prepare(
@@ -329,7 +368,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
-            if (!$this->isManager($config, $context, $pdo)) {
+            if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
             }
             if ($this->findInstrument($pdo, $code) === null) {
@@ -399,7 +438,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
-            if (!$this->isManager($config, $context, $pdo)) {
+            if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
             }
             $instrument = $this->findInstrument($pdo, $code);
@@ -531,7 +570,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $instrumentCode = $this->requireInstrumentCode($input);
             $instrument = $this->requireInstrument($pdo, $instrumentCode);
             $eventType = $this->optionalEventType($input);
-            $this->assertCreateAllowed($config, $pdo, $context, $eventType);
+            $this->assertCreateAllowed($pdo, $context, $eventType);
 
             $now = $nowTimestamp ?? time();
             [$start, $end] = $this->validatedTimesForInstrument(
@@ -623,7 +662,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 throw new InstrumentBookingException('INVALID_INPUT', 'The event type cannot be changed after creation.', 400);
             }
             $eventType = $existing['event_type'];
-            if ($eventType === 'block' && !$this->isManager($config, $context, $pdo)) {
+            if ($eventType === 'block' && !$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('PERMISSION_DENIED', 'Only administrators can create outages.', 403);
             }
 
@@ -700,7 +739,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             $groupId = (string)$selectedSegment['booking_group_id'];
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
-            if (!$this->canCancelEvent($config, $pdo, $event, $context)) {
+            if (!$this->canCancelEvent($pdo, $event, $context)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be cancelled.', 403);
             }
 
@@ -1006,19 +1045,15 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
-    public function isManager(array $config, array $context, ?PDO $pdo = null): bool
+    public function isPluginAdmin(PDO $pdo, array $context): bool
     {
-        if (!empty($context['isSuperuser'])) {
-            return true;
+        if (empty($context['user'])) {
+            return false;
         }
-        $groups = $context['groups'] ?? [];
-        if (count(array_intersect($groups, $config['manager_groups'])) > 0) {
-            return true;
+        if ($this->schemaVersion($pdo) < 3) {
+            return false;
         }
-        if ($pdo !== null && $this->schemaVersion($pdo) >= 3 && !empty($context['user'])) {
-            return $this->findPluginAdmin($pdo, (string)$context['user']) !== null;
-        }
-        return false;
+        return $this->findPluginAdmin($pdo, (string)$context['user']) !== null;
     }
 
     public function userHasInstrumentAccess(array $instrument, array $context): bool
@@ -1029,14 +1064,14 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     public function requireAdmin(array $config, PDO $pdo, array $context): void
     {
         $this->requireAuthenticated($context);
-        if (!$this->isManager($config, $context, $pdo)) {
+        if (!$this->isPluginAdmin($pdo, $context)) {
             throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
         }
     }
 
-    private function assertCreateAllowed(array $config, PDO $pdo, array $context, string $eventType): void
+    private function assertCreateAllowed(PDO $pdo, array $context, string $eventType): void
     {
-        if ($eventType === 'block' && !$this->isManager($config, $context, $pdo)) {
+        if ($eventType === 'block' && !$this->isPluginAdmin($pdo, $context)) {
             throw new InstrumentBookingException('PERMISSION_DENIED', 'Only administrators can create outages.', 403);
         }
     }
@@ -1047,17 +1082,17 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return false;
         }
         return $event['owner_user'] === $context['user']
-            && ($event['event_type'] === 'booking' || $this->isManager($config, $context, $pdo));
+            && ($event['event_type'] === 'booking' || $this->isPluginAdmin($pdo, $context));
     }
 
-    private function canCancelEvent(array $config, PDO $pdo, array $event, array $context): bool
+    private function canCancelEvent(PDO $pdo, array $event, array $context): bool
     {
         $now = time();
         if ($event['owner_user'] !== $context['user']) {
             return false;
         }
         if ($event['event_type'] === 'block') {
-            return $this->isManager($config, $context, $pdo) && (int)$event['end_ts'] > $now;
+            return $this->isPluginAdmin($pdo, $context) && (int)$event['end_ts'] > $now;
         }
         return (int)$event['start_ts'] > $now;
     }
@@ -1077,7 +1112,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             'createdAt' => $this->formatIso((int)$event['created_at'], $config['timezone']),
             'updatedAt' => $this->formatIso((int)$event['updated_at'], $config['timezone']),
             'canEdit' => $this->canEditEvent($config, $pdo, $event, $context),
-            'canCancel' => $this->canCancelEvent($config, $pdo, $event, $context),
+            'canCancel' => $this->canCancelEvent($pdo, $event, $context),
         ];
     }
 
@@ -1236,55 +1271,106 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         string $timezone,
         ?string $excludeGroupId
     ): void {
-        $limit = (int)$instrument['weekly_quota_minutes'];
-        if ($limit === 0) {
+        $limitMinutes = (int)$instrument['weekly_quota_minutes'];
+        if ($limitMinutes === 0) {
             return;
         }
         foreach ($segments as [$segmentStart, $segmentEnd]) {
-            [$weekStart, $weekEnd] = $this->weekBoundsForTimestamp($segmentStart, $timezone);
-            $sql = 'SELECT COALESCE(SUM(
-                        MIN(end_ts, :week_end) - MAX(start_ts, :week_start)
-                    ), 0)
-                    FROM events
-                    WHERE instrument_code = :instrument_code
-                      AND owner_user = :owner_user
-                      AND event_type = :event_type
-                      AND cancelled_at IS NULL
-                      AND start_ts < :week_end
-                      AND end_ts > :week_start';
-            $params = [
-                ':week_start' => $weekStart,
-                ':week_end' => $weekEnd,
-                ':instrument_code' => $instrument['code'],
-                ':owner_user' => $ownerUser,
-                ':event_type' => 'booking',
-            ];
-            if ($excludeGroupId !== null) {
-                $sql .= ' AND booking_group_id <> :booking_group_id';
-                $params[':booking_group_id'] = $excludeGroupId;
-            }
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            $usedMinutes = intdiv((int)$stmt->fetchColumn(), 60);
-            $requestedMinutes = intdiv($segmentEnd - $segmentStart, 60);
-            if ($usedMinutes + $requestedMinutes > $limit) {
+            $usedSeconds = $this->sumWeeklyBookingSeconds(
+                $pdo,
+                (string)$instrument['code'],
+                $ownerUser,
+                $segmentStart,
+                $timezone,
+                $excludeGroupId
+            );
+            $usedMinutes = intdiv($usedSeconds, 60);
+            $requestedSeconds = $segmentEnd - $segmentStart;
+            $requestedMinutes = intdiv($requestedSeconds, 60);
+            if ($usedMinutes + $requestedMinutes > $limitMinutes) {
                 throw new InstrumentBookingException(
                     'WEEKLY_LIMIT_EXCEEDED',
                     'Weekly booking limit exceeded. Used: ' . $this->formatMinutes($usedMinutes)
                         . ', requested: ' . $this->formatMinutes($requestedMinutes)
-                        . ', limit: ' . $this->formatMinutes($limit) . '.',
+                        . ', limit: ' . $this->formatMinutes($limitMinutes) . '.',
                     409
                 );
             }
         }
     }
 
+    public function weeklyBookingMinutesUsed(
+        PDO $pdo,
+        string $instrumentCode,
+        string $ownerUser,
+        int $timestampInWeek,
+        string $timezone,
+        ?string $excludeGroupId = null
+    ): int {
+        $usedSeconds = $this->sumWeeklyBookingSeconds(
+            $pdo,
+            $instrumentCode,
+            $ownerUser,
+            $timestampInWeek,
+            $timezone,
+            $excludeGroupId
+        );
+        return intdiv($usedSeconds, 60);
+    }
+
+    private function sumWeeklyBookingSeconds(
+        PDO $pdo,
+        string $instrumentCode,
+        string $ownerUser,
+        int $timestampInWeek,
+        string $timezone,
+        ?string $excludeGroupId
+    ): int {
+        [$weekStart, $weekEnd] = $this->weekBoundsForTimestamp($timestampInWeek, $timezone);
+        // Use CASE instead of min()/max() — PDO+SQLite treats bound args in min/max as aggregates.
+        $sql = 'SELECT COALESCE(SUM(
+                    (CASE WHEN end_ts < :clip_end THEN end_ts ELSE :clip_end_b END)
+                    - (CASE WHEN start_ts > :clip_start THEN start_ts ELSE :clip_start_b END)
+                ), 0)
+                FROM events
+                WHERE instrument_code = :instrument_code
+                  AND owner_user = :owner_user
+                  AND event_type = :event_type
+                  AND cancelled_at IS NULL
+                  AND start_ts < :range_end
+                  AND end_ts > :range_start';
+        $params = [
+            ':clip_start' => $weekStart,
+            ':clip_start_b' => $weekStart,
+            ':clip_end' => $weekEnd,
+            ':clip_end_b' => $weekEnd,
+            ':range_start' => $weekStart,
+            ':range_end' => $weekEnd,
+            ':instrument_code' => $instrumentCode,
+            ':owner_user' => $ownerUser,
+            ':event_type' => 'booking',
+        ];
+        if ($excludeGroupId !== null) {
+            $sql .= ' AND booking_group_id <> :booking_group_id';
+            $params[':booking_group_id'] = $excludeGroupId;
+        }
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        return max(0, (int)$stmt->fetchColumn());
+    }
+
     private function formatMinutes(int $minutes): string
     {
-        if ($minutes % 60 === 0) {
-            return intdiv($minutes, 60) . ' hours';
+        $hours = intdiv($minutes, 60);
+        $remainingMinutes = $minutes % 60;
+        $parts = [];
+        if ($hours > 0) {
+            $parts[] = $hours . ($hours === 1 ? ' hour' : ' hours');
         }
-        return $minutes . ' minutes';
+        if ($remainingMinutes > 0 || $parts === []) {
+            $parts[] = $remainingMinutes . ($remainingMinutes === 1 ? ' minute' : ' minutes');
+        }
+        return implode(' ', $parts);
     }
 
     private function insertEventSegment(
@@ -1367,13 +1453,17 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
     private function instrumentForResponse(array $instrument): array
     {
+        $maxMinutes = (int)$instrument['max_booking_minutes'];
+        $weeklyMinutes = (int)$instrument['weekly_quota_minutes'];
         return [
             'code' => (string)$instrument['code'],
             'name' => (string)$instrument['name'],
             'description' => (string)$instrument['description'],
             'minMinutes' => 30,
-            'maxMinutes' => (int)$instrument['max_booking_minutes'],
-            'weeklyQuotaMinutes' => (int)$instrument['weekly_quota_minutes'],
+            'maxBookingHours' => intdiv($maxMinutes, 60),
+            'weeklyQuotaHours' => intdiv($weeklyMinutes, 60),
+            'maxMinutes' => $maxMinutes,
+            'weeklyQuotaMinutes' => $weeklyMinutes,
         ];
     }
 
@@ -1381,9 +1471,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $name = $this->cleanText($this->requireString($input, 'name', 120), 120);
         $description = $this->cleanText($this->optionalString($input, 'description', 1000), 1000, true);
-        $maximum = $this->requireMinuteRule($input, 'maxBookingMinutes', false);
-        $weekly = $this->requireMinuteRule($input, 'weeklyQuotaMinutes', true);
-        if ($weekly !== 0 && $weekly < $maximum) {
+        $maxHours = $this->requireHourRule($input, 'maxBookingHours', false);
+        $weeklyHours = $this->requireHourRule($input, 'weeklyQuotaHours', true);
+        if ($weeklyHours !== 0 && $weeklyHours < $maxHours) {
             throw new InstrumentBookingException(
                 'INVALID_INPUT',
                 'The weekly limit must be zero or at least the maximum booking duration.',
@@ -1393,24 +1483,24 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return [
             'name' => $name,
             'description' => $description,
-            'max_booking_minutes' => $maximum,
-            'weekly_quota_minutes' => $weekly,
+            'max_booking_minutes' => $maxHours * 60,
+            'weekly_quota_minutes' => $weeklyHours * 60,
         ];
     }
 
-    private function requireMinuteRule(array $input, string $key, bool $allowZero): int
+    private function requireHourRule(array $input, string $key, bool $allowZero): int
     {
         if (!array_key_exists($key, $input) || filter_var($input[$key], FILTER_VALIDATE_INT) === false) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'Time limits must be whole minutes.', 400);
+            throw new InstrumentBookingException('INVALID_INPUT', 'Time limits must be whole hours.', 400);
         }
         $value = (int)$input[$key];
         if ($allowZero && $value === 0) {
             return 0;
         }
-        if ($value < 30 || $value > 10080 || $value % 30 !== 0) {
+        if ($value < 1 || $value > 168) {
             throw new InstrumentBookingException(
                 'INVALID_INPUT',
-                'Time limits must use 30-minute increments between 30 and 10080 minutes.',
+                'Time limits must be whole hours between 1 and 168.',
                 400
             );
         }
