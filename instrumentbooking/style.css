@@ -79,11 +79,11 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-accent: #8b5cf6;
     --ib-accent-hover: #a78bfa;
     --ib-accent-soft: rgba(139, 92, 246, 0.18);
-    --ib-control-bg: #140c1f;
-    --ib-control-hover: #1d112b;
-    --ib-control-active: #28173b;
-    --ib-control-border: rgba(139, 92, 246, 0.26);
-    --ib-control-focus: #7451a6;
+    --ib-control-bg: #0d0814;
+    --ib-control-hover: #150c20;
+    --ib-control-active: #1e112c;
+    --ib-control-border: rgba(116, 81, 166, 0.22);
+    --ib-control-focus: #5f4385;
     --ib-button: var(--ib-control-bg);
     --ib-button-hover: var(--ib-control-hover);
     --ib-button-active: var(--ib-control-active);
@@ -309,7 +309,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot {
-    height: 1.6em;
+    height: 2em;
     border-color: var(--ib-grid);
     background: var(--ib-surface);
 }
