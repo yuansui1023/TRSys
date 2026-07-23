@@ -41,10 +41,19 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
         $ajaxUrl = $base . 'lib/exe/ajax.php?call=instrumentbooking';
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
         $vendorCss = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.css';
+        $info = $this->getInfo();
+        $updatedDate = isset($info['date']) ? (string)$info['date'] : '';
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $updatedDate) !== 1) {
+            $updatedDate = '';
+        }
+        $updatedDateAttribute = $updatedDate === ''
+            ? ''
+            : ' data-updated-date="' . $this->escape($updatedDate) . '"';
 
         $renderer->doc .= '<link rel="stylesheet" href="' . $this->escape($vendorCss) . '">' . "\n";
         $renderer->doc .= '<div id="instrument-booking-app" class="instrument-booking-app"'
             . ' data-ajax-url="' . $this->escape($ajaxUrl) . '"'
+            . $updatedDateAttribute
             . ' data-fullcalendar-js="' . $this->escape($vendorJs) . '">'
             . '<p>' . $this->escape($this->getLang('loading') ?: 'Loading instrument bookings...') . '</p>'
             . '</div>' . "\n";
