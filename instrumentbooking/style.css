@@ -362,7 +362,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-slot {
-    height: 2.15em;
+    height: 1.6em;
     border-color: var(--ib-grid);
     background: var(--ib-surface);
 }
