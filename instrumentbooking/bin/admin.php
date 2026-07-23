@@ -11,7 +11,9 @@ require_once dirname(__DIR__) . '/helper.php';
 try {
     $args = array_values(array_slice($argv, 1));
     if ($args === [] || in_array($args[0], ['--help', '-h'], true)) {
-        echo "Usage: php bin/admin.php revoke <username> [--config=/path/to/instrumentbooking.local.php]\n";
+        echo "Usage:\n";
+        echo "  php bin/admin.php bootstrap <username> [--config=/path/to/instrumentbooking.local.php]\n";
+        echo "  php bin/admin.php revoke <username> [--config=/path/to/instrumentbooking.local.php]\n";
         exit(0);
     }
 
@@ -30,7 +32,7 @@ try {
         throw new RuntimeException('Unknown option: ' . $arg);
     }
 
-    if ($command !== 'revoke') {
+    if (!in_array($command, ['bootstrap', 'revoke'], true)) {
         throw new RuntimeException('Unknown command: ' . $command);
     }
     if (!is_string($username) || trim($username) === '') {
@@ -44,8 +46,15 @@ try {
     }
     $config = $helper->loadBookingConfig($configPath);
     $pdo = $helper->connect($config);
-    $result = $helper->revokePluginAdminCli($pdo, $username);
 
+    if ($command === 'bootstrap') {
+        $result = $helper->bootstrapPluginAdminCli($pdo, $username);
+        echo "Bootstrapped first TRSys administrator: " . $result['username'] . "\n";
+        echo "DokuWiki user accounts were not modified.\n";
+        exit(0);
+    }
+
+    $result = $helper->revokePluginAdminCli($pdo, $username);
     echo "Revoked TRSys administrator: " . $result['username'] . "\n";
     echo "Remaining TRSys administrators: " . $result['remainingAdmins'] . "\n";
     echo "DokuWiki user accounts were not modified.\n";

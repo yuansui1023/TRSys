@@ -103,6 +103,24 @@ function user(string $name = 'alice', array $groups = ['sem-users'], bool $admin
     return ['user' => $name, 'groups' => $groups, 'isSuperuser' => $admin];
 }
 
+function grant_plugin_admin(PDO $pdo, string $username, int $now = 1): void
+{
+    $stmt = $pdo->prepare(
+        'INSERT INTO plugin_admins (username, added_at, added_by)
+         VALUES (:username, :added_at, :added_by)'
+    );
+    $stmt->execute([
+        ':username' => $username,
+        ':added_at' => $now,
+        ':added_by' => 'test',
+    ]);
+}
+
+function plugin_admin(string $name = 'manager'): array
+{
+    return user($name, []);
+}
+
 function booking(array $extra = []): array
 {
     return array_replace([
@@ -415,7 +433,8 @@ test('ordinary user cannot create block', function () {
 
 test('manager can create block', function () {
     [$h, $c, $pdo] = fixture();
-    $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+    grant_plugin_admin($pdo, 'manager');
+    $event = $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T09:30:00-08:00',
@@ -426,7 +445,8 @@ test('manager can create block', function () {
 
 test('manager can create outage longer than booking maximum across days', function () {
     [$h, $c, $pdo] = fixture();
-    $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+    grant_plugin_admin($pdo, 'manager');
+    $event = $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
         'eventType' => 'block',
         'start' => '2030-01-02T09:00:00-08:00',
         'end' => '2030-01-04T17:00:00-08:00',
@@ -436,7 +456,8 @@ test('manager can create outage longer than booking maximum across days', functi
 
 test('manager can update outage beyond booking duration limits', function () {
     [$h, $c, $pdo] = fixture();
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $event = $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
     ]), null, la_timestamp('2030-01-01 08:00:00'))['event'];
@@ -454,9 +475,10 @@ test('manager can update outage beyond booking duration limits', function () {
 
 test('outage still conflicts with existing booking', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     $h->createEvent($c, $pdo, user('alice'), booking());
     assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+        $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
             'eventType' => 'block',
             'start' => '2030-01-01T09:30:00-08:00',
             'end' => '2030-01-01T10:00:00-08:00',
@@ -466,7 +488,8 @@ test('outage still conflicts with existing booking', function () {
 
 test('outage still conflicts with existing outage', function () {
     [$h, $c, $pdo] = fixture();
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
@@ -490,7 +513,8 @@ test('adjacent outages do not apply booking buffers', function () {
             ],
         ],
     ]);
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
@@ -505,7 +529,8 @@ test('adjacent outages do not apply booking buffers', function () {
 
 test('booking can start when outage ends', function () {
     [$h, $c, $pdo] = fixture();
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'start' => '2030-01-01T01:00:00-08:00',
@@ -519,11 +544,12 @@ test('booking can start when outage ends', function () {
 
 test('outage can start when booking ends', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     $h->createEvent($c, $pdo, user(), booking([
         'start' => '2030-01-01T01:00:00-08:00',
         'end' => '2030-01-01T02:00:00-08:00',
     ]));
-    $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+    $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
         'eventType' => 'block',
         'start' => '2030-01-01T02:00:00-08:00',
         'end' => '2030-01-01T03:00:00-08:00',
@@ -532,7 +558,8 @@ test('outage can start when booking ends', function () {
 
 test('existing event type cannot be changed', function () {
     [$h, $c, $pdo] = fixture();
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $event = $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'title' => 'Maintenance',
@@ -553,7 +580,8 @@ test('existing event type cannot be changed', function () {
 
 test('ordinary user cannot modify or cancel outage', function () {
     [$h, $c, $pdo] = fixture();
-    $manager = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $manager = plugin_admin('manager');
     $event = $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'title' => 'Vacuum pump outage',
@@ -861,42 +889,53 @@ test('regular user cannot access settings API', function () {
         $h->createInstrument($c, $pdo, user(), [
             'name' => 'TEM-01',
             'description' => '',
-            'maxBookingMinutes' => 120,
-            'weeklyQuotaMinutes' => 0,
+            'maxBookingHours' => 2,
+            'weeklyQuotaHours' => 0,
         ]);
     });
 });
 
 test('admin can create and update instruments', function () {
     [$h, $c, $pdo] = fixture();
-    $admin = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
     $created = $h->createInstrument($c, $pdo, $admin, [
         'name' => 'TEM-01',
         'description' => 'Transmission Electron Microscope',
-        'maxBookingMinutes' => 180,
-        'weeklyQuotaMinutes' => 360,
+        'maxBookingHours' => 3,
+        'weeklyQuotaHours' => 6,
     ])['instrument'];
     assert_true(str_starts_with($created['code'], 'tool-'));
+    assert_true($created['maxBookingHours'] === 3);
+    assert_true($created['weeklyQuotaHours'] === 6);
     assert_true($created['maxMinutes'] === 180);
     assert_true($created['weeklyQuotaMinutes'] === 360);
+    $stored = $pdo->query(
+        "SELECT max_booking_minutes, weekly_quota_minutes FROM instruments WHERE code = " . $pdo->quote($created['code'])
+    )->fetch();
+    assert_true((int)$stored['max_booking_minutes'] === 180);
+    assert_true((int)$stored['weekly_quota_minutes'] === 360);
 
     $updated = $h->updateInstrument($c, $pdo, $admin, [
         'instrumentCode' => $created['code'],
         'name' => 'TEM-01 Updated',
         'description' => 'Updated description',
-        'maxBookingMinutes' => 240,
-        'weeklyQuotaMinutes' => 480,
+        'maxBookingHours' => 4,
+        'weeklyQuotaHours' => 8,
     ])['instrument'];
     assert_true($updated['name'] === 'TEM-01 Updated');
+    assert_true($updated['maxBookingHours'] === 4);
+    assert_true($updated['weeklyQuotaHours'] === 8);
     assert_true($updated['maxMinutes'] === 240);
     assert_true($updated['weeklyQuotaMinutes'] === 480);
 });
 
 test('admin cannot modify another users booking', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     $event = $h->createEvent($c, $pdo, user('alice'), booking())['event'];
     assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
-        $h->updateEvent($c, $pdo, user('manager', ['instrument-admin']), [
+        $h->updateEvent($c, $pdo, plugin_admin('manager'), [
             'eventId' => $event['id'],
             'instrumentCode' => 'sem-01',
             'eventType' => 'booking',
@@ -909,13 +948,15 @@ test('admin cannot modify another users booking', function () {
 
 test('admin cannot modify another admins outage', function () {
     [$h, $c, $pdo] = fixture();
-    $event = $h->createEvent($c, $pdo, user('manager-a', ['instrument-admin']), booking([
+    grant_plugin_admin($pdo, 'manager-a');
+    grant_plugin_admin($pdo, 'manager-b');
+    $event = $h->createEvent($c, $pdo, plugin_admin('manager-a'), booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
     ]))['event'];
     assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
-        $h->updateEvent($c, $pdo, user('manager-b', ['instrument-admin']), [
+        $h->updateEvent($c, $pdo, plugin_admin('manager-b'), [
             'eventId' => $event['id'],
             'instrumentCode' => 'sem-01',
             'eventType' => 'block',
@@ -928,8 +969,9 @@ test('admin cannot modify another admins outage', function () {
 
 test('admin bookings obey weekly quota', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     set_instrument_rules($pdo, 'sem-01', 120, 120);
-    $admin = user('manager', ['instrument-admin']);
+    $admin = plugin_admin('manager');
     $h->createEvent($c, $pdo, $admin, booking([
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T11:00:00-08:00',
@@ -987,13 +1029,14 @@ test('weekly quotas are tracked per instrument', function () {
 
 test('cancelled bookings and outages do not consume weekly quota', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     set_instrument_rules($pdo, 'sem-01', 60, 60);
     $event = $h->createEvent($c, $pdo, user(), booking([
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
     ]))['event'];
     $h->cancelEvent($c, $pdo, user(), ['eventId' => $event['id']]);
-    $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+    $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
         'eventType' => 'block',
         'start' => '2030-01-01T11:00:00-08:00',
         'end' => '2030-01-01T13:00:00-08:00',
@@ -1169,12 +1212,26 @@ test('schema version is three after install', function () {
 
 test('admin list has no web remove path and rejects remove API', function () {
     [$h, $c, $pdo] = fixture();
-    $admin = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'ops-admin']);
     $admins = $h->listPluginAdmins($pdo);
-    assert_true(count($admins) === 1);
-    assert_true($admins[0]['username'] === 'ops-admin');
+    assert_true(count($admins) === 2);
+    $names = array_map(static fn(array $row): string => $row['username'], $admins);
+    sort($names);
+    assert_true($names === ['manager', 'ops-admin']);
     assert_true(!array_key_exists('canRemove', $admins[0]));
+});
+
+test('instruments API marks only plugin_admins as isAdmin', function () {
+    [$h, $c, $pdo] = fixture();
+    $guest = $h->listInstruments($c, $pdo, user('test'));
+    assert_true($guest['isAdmin'] === false);
+    $superuser = $h->listInstruments($c, $pdo, user('wiki-admin', ['admin'], true));
+    assert_true($superuser['isAdmin'] === false);
+    grant_plugin_admin($pdo, 'trsys-admin');
+    $admin = $h->listInstruments($c, $pdo, plugin_admin('trsys-admin'));
+    assert_true($admin['isAdmin'] === true);
 });
 
 test('ordinary user cannot delete instruments', function () {
@@ -1189,7 +1246,8 @@ test('ordinary user cannot delete instruments', function () {
 
 test('admin can delete instrument with matching confirmation', function () {
     [$h, $c, $pdo] = fixture();
-    $admin = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
     $result = $h->deleteInstrument($c, $pdo, $admin, [
         'instrumentCode' => 'sem-01',
         'confirmName' => 'SEM-01',
@@ -1200,19 +1258,21 @@ test('admin can delete instrument with matching confirmation', function () {
 
 test('wrong confirmation name does not delete instrument', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     assert_error('DELETE_CONFIRMATION_MISMATCH', function () use ($h, $c, $pdo) {
-        $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+        $h->deleteInstrument($c, $pdo, plugin_admin('manager'), [
             'instrumentCode' => 'sem-01',
             'confirmName' => 'Wrong Name',
         ]);
     });
-    assert_true(count($h->listInstruments($c, $pdo, user('manager', ['instrument-admin']))['instruments']) === 1);
+    assert_true(count($h->listInstruments($c, $pdo, plugin_admin('manager'))['instruments']) === 1);
 });
 
 test('deleting a missing instrument returns not found', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     assert_error('INSTRUMENT_NOT_FOUND', function () use ($h, $c, $pdo) {
-        $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+        $h->deleteInstrument($c, $pdo, plugin_admin('manager'), [
             'instrumentCode' => 'missing-tool',
             'confirmName' => 'Missing',
         ]);
@@ -1221,8 +1281,9 @@ test('deleting a missing instrument returns not found', function () {
 
 test('deleting an instrument removes bookings outages segments and request records', function () {
     [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
     set_instrument_rules($pdo, 'sem-01', 240, 0);
-    $admin = user('manager', ['instrument-admin']);
+    $admin = plugin_admin('manager');
     $h->createEvent($c, $pdo, user(), booking([
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
@@ -1265,12 +1326,13 @@ test('deleting one instrument leaves other instruments intact', function () {
             ],
         ],
     ]);
+    grant_plugin_admin($pdo, 'manager');
     $h->createEvent($c, $pdo, user(), booking([
         'instrumentCode' => 'tem-01',
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
     ]));
-    $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+    $h->deleteInstrument($c, $pdo, plugin_admin('manager'), [
         'instrumentCode' => 'sem-01',
         'confirmName' => 'SEM-01',
     ]);
@@ -1280,18 +1342,197 @@ test('deleting one instrument leaves other instruments intact', function () {
 
 test('cli revoke removes non final admin and blocks last admin', function () {
     [$h, $c, $pdo] = fixture();
-    $admin = user('manager', ['instrument-admin']);
+    grant_plugin_admin($pdo, 'manager');
+    $admin = plugin_admin('manager');
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'alpha']);
     $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'beta']);
     $result = $h->revokePluginAdminCli($pdo, 'alpha');
     assert_true($result['revoked'] === true);
-    assert_true($result['remainingAdmins'] === 1);
+    assert_true($result['remainingAdmins'] === 2);
+    $h->revokePluginAdminCli($pdo, 'manager');
     assert_error('LAST_ADMIN_CANNOT_BE_REVOKED', function () use ($h, $pdo) {
         $h->revokePluginAdminCli($pdo, 'beta');
     });
     assert_error('ADMIN_NOT_FOUND', function () use ($h, $pdo) {
         $h->revokePluginAdminCli($pdo, 'missing-user');
     });
+});
+
+test('cli bootstrap creates the first plugin admin only', function () {
+    [$h, $c, $pdo] = fixture();
+    $result = $h->bootstrapPluginAdminCli($pdo, 'bootstrap-admin', 100);
+    assert_true($result['bootstrapped'] === true);
+    assert_true($result['username'] === 'bootstrap-admin');
+    assert_true($h->isPluginAdmin($pdo, plugin_admin('bootstrap-admin')) === true);
+    assert_error('INVALID_INPUT', function () use ($h, $pdo) {
+        $h->bootstrapPluginAdminCli($pdo, 'second-admin');
+    });
+});
+
+test('settings hours map to database minutes', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    set_instrument_rules($pdo, 'sem-01', 360, 1800);
+    $listed = $h->listAdminInstruments($c, $pdo, plugin_admin('manager'))['instruments'][0];
+    assert_true($listed['maxBookingHours'] === 6);
+    assert_true($listed['weeklyQuotaHours'] === 30);
+    $saved = $h->updateInstrument($c, $pdo, plugin_admin('manager'), [
+        'instrumentCode' => 'sem-01',
+        'name' => 'SEM-01',
+        'description' => 'Scanning Electron Microscope',
+        'maxBookingHours' => 6,
+        'weeklyQuotaHours' => 30,
+    ])['instrument'];
+    assert_true($saved['maxBookingHours'] === 6);
+    assert_true($saved['weeklyQuotaHours'] === 30);
+    $row = $pdo->query("SELECT max_booking_minutes, weekly_quota_minutes FROM instruments WHERE code = 'sem-01'")->fetch();
+    assert_true((int)$row['max_booking_minutes'] === 360);
+    assert_true((int)$row['weekly_quota_minutes'] === 1800);
+});
+
+test('weekly used time counts exact booking minutes', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 360, 0);
+    $weekTs = la_timestamp('2030-01-01 12:00:00');
+
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T09:30:00-08:00',
+    ]));
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 30);
+
+    $pdo->exec('DELETE FROM events');
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T10:00:00-08:00',
+        'end' => '2030-01-01T11:00:00-08:00',
+    ]));
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 60);
+
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T12:00:00-08:00',
+        'end' => '2030-01-01T13:00:00-08:00',
+    ]));
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 120);
+
+    $pdo->exec('DELETE FROM events');
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-02T09:00:00-08:00',
+        'end' => '2030-01-02T15:00:00-08:00',
+    ]));
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 360);
+});
+
+test('weekly used time ignores cancelled outages other users and instruments', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'tem-01' => [
+                'name' => 'TEM-01',
+                'description' => 'TEM',
+                'allowed_groups' => ['sem-users'],
+                'min_minutes' => 30,
+                'max_minutes' => 240,
+                'buffer_before_minutes' => 0,
+                'buffer_after_minutes' => 0,
+                'color' => '#2563eb',
+                'enabled' => true,
+            ],
+        ],
+    ]);
+    grant_plugin_admin($pdo, 'manager');
+    set_instrument_rules($pdo, 'sem-01', 360, 0);
+    set_instrument_rules($pdo, 'tem-01', 360, 0);
+    $weekTs = la_timestamp('2030-01-01 12:00:00');
+
+    $cancelled = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]))['event'];
+    $h->cancelEvent($c, $pdo, user(), ['eventId' => $cancelled['id']]);
+
+    $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T11:00:00-08:00',
+        'end' => '2030-01-01T14:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user('bob'), booking([
+        'start' => '2030-01-01T15:00:00-08:00',
+        'end' => '2030-01-01T16:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'tem-01',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T12:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T16:30:00-08:00',
+        'end' => '2030-01-01T17:00:00-08:00',
+    ]));
+
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 30);
+});
+
+test('weekly used time excludes original booking group on update', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 120, 120);
+    $weekTs = la_timestamp('2030-01-01 12:00:00');
+    $now = la_timestamp('2030-01-01 08:00:00');
+    $event = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T11:00:00-08:00',
+    ]), null, $now)['event'];
+    assert_true(
+        $h->weeklyBookingMinutesUsed(
+            $pdo,
+            'sem-01',
+            'alice',
+            $weekTs,
+            $c['timezone'],
+            $event['bookingGroupId']
+        ) === 0
+    );
+    $h->updateEvent($c, $pdo, user(), [
+        'eventId' => $event['id'],
+        'instrumentCode' => 'sem-01',
+        'eventType' => 'booking',
+        'note' => '',
+        'start' => '2030-01-01T12:00:00-08:00',
+        'end' => '2030-01-01T14:00:00-08:00',
+    ], null, $now);
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $weekTs, $c['timezone']) === 120);
+});
+
+test('cross week segment usage is counted once per week', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+    ]));
+    $firstWeek = la_timestamp('2030-01-05 12:00:00');
+    $secondWeek = la_timestamp('2030-01-06 12:00:00');
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $firstWeek, $c['timezone']) === 60);
+    assert_true($h->weeklyBookingMinutesUsed($pdo, 'sem-01', 'alice', $secondWeek, $c['timezone']) === 60);
+});
+
+test('weekly limit error reports readable hours and minutes', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 90, 90);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:30:00-08:00',
+    ]));
+    try {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T12:00:00-08:00',
+            'end' => '2030-01-01T12:30:00-08:00',
+        ]));
+        throw new RuntimeException('Expected WEEKLY_LIMIT_EXCEEDED');
+    } catch (InstrumentBookingException $e) {
+        assert_true($e->errorCode() === 'WEEKLY_LIMIT_EXCEEDED');
+        assert_true(str_contains($e->getMessage(), 'Used: 1 hour 30 minutes'));
+        assert_true(str_contains($e->getMessage(), 'requested: 30 minutes'));
+        assert_true(str_contains($e->getMessage(), 'limit: 1 hour 30 minutes'));
+    }
 });
 
 $failures = 0;

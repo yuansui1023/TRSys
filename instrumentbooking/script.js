@@ -43,7 +43,7 @@
             ajaxUrl: root.getAttribute('data-ajax-url'),
             sectok: '',
             timezone: 'UTC',
-            isManager: false,
+            isAdmin: false,
             instruments: [],
             selectedInstrument: null,
             calendar: null,
@@ -62,9 +62,9 @@
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
-            state.isManager = !!data.isManager;
+            state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
-            root.querySelector('.ib-settings-button').hidden = !state.isManager;
+            root.querySelector('.ib-settings-button').hidden = !state.isAdmin;
             if (data.migrationRequired) {
                 showStatus(root, data.migrationMessage || 'The booking database must be migrated.', true);
                 return;
@@ -72,7 +72,7 @@
             if (state.instruments.length === 0) {
                 showStatus(
                     root,
-                    state.isManager
+                    state.isAdmin
                         ? 'No instruments are configured. Open Settings to create one.'
                         : 'No instruments are available. Contact an administrator.',
                     true
@@ -207,11 +207,21 @@
                 clearWeekNowLines(root);
             },
             select: function (selection) {
+                var selectedDuration = selection.end.getTime() - selection.start.getTime();
+                var endIso = selectedDuration <= 30 * 60 * 1000
+                    ? fromDatetimeInput(
+                        toDatetimeInput(
+                            new Date(selection.start.getTime() + 60 * 60 * 1000).toISOString(),
+                            state.timezone
+                        ),
+                        state.timezone
+                    )
+                    : ensureExplicitOffset(selection.endStr, state.timezone);
                 openDialog(root, state, {
                     mode: 'create',
                     instrumentCode: state.selectedInstrument,
                     start: ensureExplicitOffset(selection.startStr, state.timezone),
-                    end: ensureExplicitOffset(selection.endStr, state.timezone),
+                    end: endIso,
                     note: '',
                     eventType: 'booking',
                     canEdit: true,
@@ -677,7 +687,7 @@
     }
 
     function openSettings(state) {
-        if (!state.isManager || state.saving) {
+        if (!state.isAdmin || state.saving) {
             return;
         }
         var overlay = state.root.querySelector('.ib-settings-overlay');
@@ -765,15 +775,15 @@
         form.appendChild(settingsTextField('name', 'Name', instrument ? instrument.name : '', 120, true));
         form.appendChild(settingsTextArea('description', 'Description', instrument ? instrument.description : '', 1000));
         form.appendChild(settingsNumberField(
-            'maxBookingMinutes',
-            'Maximum duration per booking (minutes)',
-            instrument ? instrument.maxMinutes : 240,
-            30
+            'maxBookingHours',
+            'Maximum duration per booking (hours)',
+            instrument ? instrument.maxBookingHours : 4,
+            1
         ));
         form.appendChild(settingsNumberField(
-            'weeklyQuotaMinutes',
-            'Weekly limit per user (minutes, 0 for unlimited)',
-            instrument ? instrument.weeklyQuotaMinutes : 0,
+            'weeklyQuotaHours',
+            'Weekly limit per user (hours, 0 for unlimited)',
+            instrument ? instrument.weeklyQuotaHours : 0,
             0
         ));
 
@@ -805,8 +815,8 @@
             var payload = {
                 name: getValue(form, 'name'),
                 description: getValue(form, 'description'),
-                maxBookingMinutes: Number(getValue(form, 'maxBookingMinutes')),
-                weeklyQuotaMinutes: Number(getValue(form, 'weeklyQuotaMinutes'))
+                maxBookingHours: Number(getValue(form, 'maxBookingHours')),
+                weeklyQuotaHours: Number(getValue(form, 'weeklyQuotaHours'))
             };
             if (!isCreate) {
                 payload.instrumentCode = instrument.code;
@@ -943,8 +953,8 @@
         input.type = 'number';
         input.value = String(value);
         input.min = String(minimum);
-        input.max = '10080';
-        input.step = '30';
+        input.max = '168';
+        input.step = '1';
         input.required = true;
         wrap.appendChild(input);
         return wrap;
@@ -994,7 +1004,7 @@
         setValue(overlay, 'eventType', eventData.eventType || 'booking');
         setValue(overlay, 'note', eventData.note || '');
 
-        var showEventTypeChoice = state.isManager && isCreate;
+        var showEventTypeChoice = state.isAdmin && isCreate;
         var eventTypeField = overlay.querySelector('.ib-event-type-field');
         var eventTypeSelect = overlay.querySelector('[name="eventType"]');
         eventTypeField.hidden = !showEventTypeChoice;
@@ -1044,7 +1054,7 @@
             start: fromDatetimeInput(getValue(overlay, 'start'), state.timezone),
             end: fromDatetimeInput(getValue(overlay, 'end'), state.timezone),
             eventType: isCreate
-                ? (state.isManager ? getValue(overlay, 'eventType') : 'booking')
+                ? (state.isAdmin ? getValue(overlay, 'eventType') : 'booking')
                 : eventData.eventType,
             note: getValue(overlay, 'note')
         };
