@@ -39,6 +39,10 @@ try {
         throw new RuntimeException('Username is required.');
     }
 
+    if ($command === 'bootstrap') {
+        load_dokuwiki_for_auth();
+    }
+
     $helper = new helper_plugin_instrumentbooking();
     $envConfig = getenv('PLUGIN_CONFIG');
     if ($configPath === null && is_string($envConfig) && $envConfig !== '') {
@@ -62,4 +66,30 @@ try {
 } catch (Throwable $e) {
     fwrite(STDERR, "Admin command failed: " . $e->getMessage() . "\n");
     exit(1);
+}
+
+function load_dokuwiki_for_auth(): void
+{
+    $root = getenv('DOKUWIKI_ROOT');
+    if (!is_string($root) || $root === '') {
+        $guess = dirname(__DIR__, 3);
+        if (is_file($guess . DIRECTORY_SEPARATOR . 'inc' . DIRECTORY_SEPARATOR . 'init.php')) {
+            $root = $guess;
+        }
+    }
+    if (!is_string($root) || $root === '') {
+        throw new RuntimeException(
+            'Unable to load DokuWiki auth. Set DOKUWIKI_ROOT to the DokuWiki root directory.'
+        );
+    }
+
+    $init = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'inc' . DIRECTORY_SEPARATOR . 'init.php';
+    if (!is_file($init)) {
+        throw new RuntimeException('DokuWiki init.php not found at: ' . $init);
+    }
+
+    if (!defined('DOKU_INC')) {
+        define('DOKU_INC', rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
+    }
+    require_once $init;
 }

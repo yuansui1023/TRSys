@@ -12,6 +12,9 @@ $tests = [];
 
 class TestInstrumentBookingHelper extends helper_plugin_instrumentbooking
 {
+    /** @var array<string, bool>|null */
+    public ?array $knownUsers = null;
+
     public function createEvent(
         array $config,
         PDO $pdo,
@@ -46,6 +49,20 @@ class TestInstrumentBookingHelper extends helper_plugin_instrumentbooking
             $reloadConfig,
             $nowTimestamp ?? $this->testNowFromInput($input)
         );
+    }
+
+    public function dokuWikiUserExists(string $username): bool
+    {
+        if ($this->knownUsers !== null) {
+            $key = strtolower($username);
+            foreach ($this->knownUsers as $name => $exists) {
+                if (strtolower((string)$name) === $key) {
+                    return (bool)$exists;
+                }
+            }
+            return false;
+        }
+        return parent::dokuWikiUserExists($username);
     }
 
     private function testNowFromInput(array $input): int
@@ -1234,6 +1251,52 @@ test('instruments API marks only plugin_admins as isAdmin', function () {
     assert_true($admin['isAdmin'] === true);
 });
 
+test('dokuwiki superuser without plugin_admins is not trsys admin', function () {
+    [$h, $c, $pdo] = fixture();
+    $context = user('wiki-admin', ['admin'], true);
+    assert_true($h->isPluginAdmin($pdo, $context) === false);
+    assert_true($h->isManager($c, $context, $pdo) === false);
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo, $context) {
+        $h->listAdminInstruments($c, $pdo, $context);
+    });
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo, $context) {
+        $h->createEvent($c, $pdo, $context, booking(['eventType' => 'block']));
+    });
+});
+
+test('manager_groups member without plugin_admins is not trsys admin', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_true($c['manager_groups'] === ['instrument-admin']);
+    $context = user('legacy-manager', ['instrument-admin']);
+    assert_true($h->isPluginAdmin($pdo, $context) === false);
+    assert_true($h->isManager($c, $context, $pdo) === false);
+    $listed = $h->listInstruments($c, $pdo, $context);
+    assert_true($listed['isAdmin'] === false);
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo, $context) {
+        $h->listAdminInstruments($c, $pdo, $context);
+    });
+});
+
+test('ordinary user cannot see settings or create outage', function () {
+    [$h, $c, $pdo] = fixture();
+    $listed = $h->listInstruments($c, $pdo, user('test'));
+    assert_true($listed['isAdmin'] === false, 'Frontend hides Settings unless isAdmin === true');
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->listAdminInstruments($c, $pdo, user('test'));
+    });
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->createInstrument($c, $pdo, user('test'), [
+            'name' => 'TEM-01',
+            'description' => '',
+            'maxBookingHours' => 2,
+            'weeklyQuotaHours' => 0,
+        ]);
+    });
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user('test'), booking(['eventType' => 'block']));
+    });
+});
+
 test('ordinary user cannot delete instruments', function () {
     [$h, $c, $pdo] = fixture();
     assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
@@ -1360,12 +1423,35 @@ test('cli revoke removes non final admin and blocks last admin', function () {
 
 test('cli bootstrap creates the first plugin admin only', function () {
     [$h, $c, $pdo] = fixture();
+    $h->knownUsers = ['bootstrap-admin' => true, 'second-admin' => true];
     $result = $h->bootstrapPluginAdminCli($pdo, 'bootstrap-admin', 100);
     assert_true($result['bootstrapped'] === true);
     assert_true($result['username'] === 'bootstrap-admin');
     assert_true($h->isPluginAdmin($pdo, plugin_admin('bootstrap-admin')) === true);
+    assert_true((int)$pdo->query('SELECT COUNT(*) FROM plugin_admins')->fetchColumn() === 1);
     assert_error('INVALID_INPUT', function () use ($h, $pdo) {
         $h->bootstrapPluginAdminCli($pdo, 'second-admin');
+    });
+});
+
+test('cli bootstrap rejects missing dokuwiki users', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->knownUsers = ['real-user' => true];
+    assert_error('USER_NOT_FOUND', function () use ($h, $pdo) {
+        $h->bootstrapPluginAdminCli($pdo, 'missing-user');
+    });
+    assert_true((int)$pdo->query('SELECT COUNT(*) FROM plugin_admins')->fetchColumn() === 0);
+    $result = $h->bootstrapPluginAdminCli($pdo, 'real-user', 200);
+    assert_true($result['bootstrapped'] === true);
+    assert_true($result['username'] === 'real-user');
+});
+
+test('cli bootstrap rejects when plugin_admins is not empty', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->knownUsers = ['late-admin' => true];
+    grant_plugin_admin($pdo, 'existing-admin');
+    assert_error('INVALID_INPUT', function () use ($h, $pdo) {
+        $h->bootstrapPluginAdminCli($pdo, 'late-admin');
     });
 });
 
