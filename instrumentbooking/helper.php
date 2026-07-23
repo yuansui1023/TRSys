@@ -69,7 +69,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return __DIR__ . '/instrumentbooking.local.php';
     }
 
-    public function loadConfig(?string $path = null): array
+    public function loadBookingConfig(?string $path = null): array
     {
         $path = $path ?: $this->defaultConfigPath();
         if (!is_file($path)) {

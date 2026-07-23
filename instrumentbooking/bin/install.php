@@ -13,7 +13,7 @@ try {
     $helper = new helper_plugin_instrumentbooking();
     $envConfig = getenv('PLUGIN_CONFIG');
     $configPath = $options['config'] ?? (is_string($envConfig) && $envConfig !== '' ? $envConfig : null);
-    $config = $helper->loadConfig($configPath);
+    $config = $helper->loadBookingConfig($configPath);
     $databasePath = $config['database_path'];
     $databaseDir = dirname($databasePath);
 

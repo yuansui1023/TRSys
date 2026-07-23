@@ -41,7 +41,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
                 $input = $_GET;
             }
 
-            $config = $helper->loadConfig();
+            $config = $helper->loadBookingConfig();
             $data = $this->dispatch($operation, $helper, $config, $context, $input);
             $this->json(['ok' => true, 'data' => $data], 200);
         } catch (InstrumentBookingException $e) {
@@ -71,7 +71,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
 
         $pdo = $helper->connect($config);
         $reloadConfig = function () use ($helper): array {
-            return $helper->loadConfig();
+            return $helper->loadBookingConfig();
         };
 
         if ($operation === 'events') {
