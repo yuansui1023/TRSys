@@ -64,7 +64,12 @@
             state.timezone = data.timezone;
             state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
-            root.querySelector('.ib-settings-button').hidden = !state.isAdmin;
+            var settingsButton = root.querySelector('.ib-settings-button');
+            if (state.isAdmin) {
+                settingsButton.hidden = false;
+            } else {
+                settingsButton.remove();
+            }
             if (data.migrationRequired) {
                 showStatus(root, data.migrationMessage || 'The booking database must be migrated.', true);
                 return;

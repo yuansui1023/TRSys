@@ -277,6 +277,16 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     {
         $this->assertSchemaCurrent($pdo);
         $username = $this->cleanText($username, 255);
+        if ($username === '') {
+            throw new InstrumentBookingException('INVALID_INPUT', 'Username is required.', 400);
+        }
+        if (!$this->dokuWikiUserExists($username)) {
+            throw new InstrumentBookingException(
+                'USER_NOT_FOUND',
+                'That DokuWiki username does not exist.',
+                404
+            );
+        }
         $now = $nowTimestamp ?? time();
         $this->beginImmediate($pdo);
         try {
@@ -310,6 +320,27 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             throw $e;
         }
+    }
+
+    public function dokuWikiUserExists(string $username): bool
+    {
+        $username = trim($username);
+        if ($username === '') {
+            return false;
+        }
+
+        global $auth;
+        if (isset($auth) && is_object($auth) && method_exists($auth, 'getUserData')) {
+            $data = $auth->getUserData($username);
+            return is_array($data);
+        }
+
+        if (function_exists('auth_getUserData')) {
+            $data = auth_getUserData($username);
+            return is_array($data);
+        }
+
+        return false;
     }
 
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
@@ -1054,6 +1085,19 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return false;
         }
         return $this->findPluginAdmin($pdo, (string)$context['user']) !== null;
+    }
+
+    /**
+     * TRSys Admin check. Ignores DokuWiki superuser, auth_isadmin(), and manager_groups.
+     * Only plugin_admins.username grants access.
+     */
+    public function isManager(array $config, array $context, ?PDO $pdo = null): bool
+    {
+        unset($config);
+        if ($pdo === null) {
+            return false;
+        }
+        return $this->isPluginAdmin($pdo, $context);
     }
 
     public function userHasInstrumentAccess(array $instrument, array $context): bool
