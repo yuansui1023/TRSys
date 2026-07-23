@@ -228,12 +228,6 @@ body.instrument-booking-page #dokuwiki__content .page {
     opacity: 1;
 }
 
-.instrument-booking-app[data-theme="midnight-lab"] .ib-timezone {
-    color: var(--ib-text-secondary);
-    font-size: 12px;
-    white-space: nowrap;
-}
-
 .instrument-booking-app[data-theme="midnight-lab"] .ib-status {
     min-height: 20px;
     margin: 0 4px 10px;
@@ -254,6 +248,10 @@ body.instrument-booking-page #dokuwiki__content .page {
     margin-top: 8px;
 }
 
+.instrument-booking-app[data-theme="midnight-lab"] .ib-calendar .fc table {
+    margin: 0;
+}
+
 .instrument-booking-app[data-theme="midnight-lab"] .fc {
     color: var(--ib-text);
     background: var(--ib-surface);
@@ -272,8 +270,16 @@ body.instrument-booking-page #dokuwiki__content .page {
     border-color: rgba(255, 255, 255, 0.075);
 }
 
-.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-col-header,
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-col-header {
+    margin: 0;
+    background: var(--ib-surface-raised);
+}
+
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-col-header-cell {
+    background: var(--ib-surface-raised);
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .fc .fc-scrollgrid-section-header > th {
     background: var(--ib-surface-raised);
 }
 
