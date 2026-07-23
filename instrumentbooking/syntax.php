@@ -37,6 +37,7 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
             return false;
         }
 
+        $renderer->info['cache'] = false;
         $base = defined('DOKU_BASE') ? DOKU_BASE : '';
         $ajaxUrl = $base . 'lib/exe/ajax.php?call=instrumentbooking';
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
