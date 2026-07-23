@@ -74,11 +74,26 @@
     function buildShell(state) {
         var shell = el('div', 'ib-shell');
 
-        var toolbar = el('div', 'ib-toolbar');
-        var title = el('h1', 'ib-title');
-        title.textContent = 'Instrument Booking System';
-        toolbar.appendChild(title);
+        var appBar = el('div', 'ib-app-bar');
+        var identity = el('div', 'ib-app-identity');
+        var appTitle = el('h1', 'ib-app-title');
+        appTitle.textContent = 'Instrument Booking';
+        var subtitle = el('p', 'ib-app-subtitle');
+        subtitle.textContent = 'Laboratory Equipment Scheduling';
+        identity.appendChild(appTitle);
+        identity.appendChild(subtitle);
+        appBar.appendChild(identity);
 
+        var appNav = el('nav', 'ib-app-nav');
+        appNav.setAttribute('aria-label', 'Application navigation');
+        var wikiLink = el('a', 'ib-app-link');
+        wikiLink.href = wikiUrl(state.ajaxUrl);
+        wikiLink.textContent = 'Return to Wiki';
+        appNav.appendChild(wikiLink);
+        appBar.appendChild(appNav);
+        shell.appendChild(appBar);
+
+        var toolbar = el('div', 'ib-toolbar');
         var controls = el('div', 'ib-toolbar-controls');
         var selectWrap = el('label', 'ib-field-inline');
         selectWrap.appendChild(text('Instrument'));
@@ -402,6 +417,14 @@
 
     function fetchInstruments(state) {
         return api(state, 'GET', 'instruments', {});
+    }
+
+    function wikiUrl(ajaxUrl) {
+        var url = new URL(ajaxUrl, window.location.href);
+        url.pathname = url.pathname.replace(/lib\/exe\/ajax\.php$/, 'doku.php');
+        url.search = '';
+        url.hash = '';
+        return url.toString();
     }
 
     function setSaving(state, overlay, saving) {
