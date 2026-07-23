@@ -124,8 +124,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
             return $helper->deleteInstrument($config, $pdo, $context, $input);
         }
         if ($operation === 'admin/users') {
-            $helper->requireAdmin($config, $pdo, $context);
-            return ['admins' => $helper->listPluginAdmins($pdo)];
+            return $helper->listCandidateDokuWikiUsers($config, $pdo, $context);
         }
         if ($operation === 'admin/users/add') {
             return $helper->addPluginAdmin($config, $pdo, $context, $input);

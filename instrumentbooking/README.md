@@ -6,12 +6,14 @@
 
 - DokuWiki syntax tag: `~~INSTRUMENTBOOKING~~`
 - Single AJAX endpoint: `lib/exe/ajax.php?call=instrumentbooking`
-- Multiple instruments configured in `conf/instrumentbooking.local.php`
-- Per-instrument allowed DokuWiki groups
-- Manager access via DokuWiki superuser or configured `manager_groups`
-- Booking and maintenance/block events
+- Multiple instruments configured in `conf/instrumentbooking.local.php` and managed in Settings
+- TRSys administrators stored in SQLite `plugin_admins` (not DokuWiki admin/manager groups)
+- Settings tools table plus DokuWiki user picker for adding a single administrator
+- CLI bootstrap/revoke for the first and subsequent TRSys administrators
+- Booking and outage (block) events
 - UTC Unix timestamps in SQLite, ISO 8601 with offsets over the API
-- Conflict prevention with `BEGIN IMMEDIATE` and buffered occupied ranges
+- Conflict prevention with `BEGIN IMMEDIATE` and half-open occupied ranges
+- Weekly quotas and per-booking duration limits in hours (stored as minutes)
 - Idempotent create requests through UUID `requestId`
 - CLI database initialization and cleanup
 

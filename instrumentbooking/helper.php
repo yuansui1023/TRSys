@@ -190,25 +190,92 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
              FROM plugin_admins
              ORDER BY username COLLATE NOCASE'
         )->fetchAll();
-        return array_map(static function (array $row): array {
+        return array_map(function (array $row): array {
+            $username = (string)$row['username'];
             return [
-                'username' => (string)$row['username'],
+                'username' => $username,
+                'displayName' => $this->dokuWikiDisplayName($username),
                 'addedAt' => (int)$row['added_at'],
             ];
         }, $rows);
+    }
+
+    public function listCandidateDokuWikiUsers(array $config, PDO $pdo, array $context): array
+    {
+        $this->requireAuthenticated($context);
+        if (!$this->isPluginAdmin($pdo, $context)) {
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'Administrator access is required.', 403);
+        }
+        $this->assertSchemaCurrent($pdo);
+
+        if (!$this->dokuWikiCanListUsers()) {
+            return [
+                'supported' => false,
+                'users' => [],
+                'message' => 'The current DokuWiki authentication backend does not support listing users.',
+            ];
+        }
+
+        $admins = [];
+        foreach ($this->listPluginAdmins($pdo) as $admin) {
+            $admins[strtolower($admin['username'])] = true;
+        }
+
+        $users = [];
+        foreach ($this->retrieveDokuWikiUsers() as $username => $displayName) {
+            $username = (string)$username;
+            if ($username === '' || isset($admins[strtolower($username)])) {
+                continue;
+            }
+            $users[] = [
+                'username' => $username,
+                'displayName' => (string)$displayName,
+            ];
+        }
+
+        usort($users, static function (array $a, array $b): int {
+            return strcasecmp($a['username'], $b['username']);
+        });
+
+        return [
+            'supported' => true,
+            'users' => $users,
+        ];
     }
 
     public function addPluginAdmin(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
         $this->requireAdmin($config, $pdo, $context);
         $this->assertSchemaCurrent($pdo);
+
+        if (array_key_exists('username', $input) && is_array($input['username'])) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'Only one administrator username can be added at a time.',
+                400
+            );
+        }
+
         $username = $this->cleanText($this->requireString($input, 'username', 255), 255);
+        if ($username === '') {
+            throw new InstrumentBookingException('INVALID_INPUT', 'Username is required.', 400);
+        }
+        if (!$this->dokuWikiUserExists($username)) {
+            throw new InstrumentBookingException(
+                'DOKUWIKI_USER_NOT_FOUND',
+                'The DokuWiki user does not exist.',
+                404
+            );
+        }
         $now = $nowTimestamp ?? time();
 
         $this->beginImmediate($pdo);
         try {
             if (!$this->isPluginAdmin($pdo, $context)) {
                 throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
+            if ($this->findPluginAdmin($pdo, $username) !== null) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'That administrator already exists.', 409);
             }
             $stmt = $pdo->prepare(
                 'INSERT INTO plugin_admins (username, added_at, added_by)
@@ -223,11 +290,15 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return [
                 'admin' => [
                     'username' => $username,
+                    'displayName' => $this->dokuWikiDisplayName($username),
                     'addedAt' => $now,
                 ],
             ];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
+            if ($e instanceof InstrumentBookingException) {
+                throw $e;
+            }
             if ($this->isUniqueConstraintException($e)) {
                 throw new InstrumentBookingException('INVALID_INPUT', 'That administrator already exists.', 409);
             }
@@ -341,6 +412,79 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
 
         return false;
+    }
+
+    public function dokuWikiCanListUsers(): bool
+    {
+        global $auth;
+        if (!isset($auth) || !is_object($auth)) {
+            return false;
+        }
+        if (method_exists($auth, 'canDo')) {
+            return (bool)$auth->canDo('getUsers');
+        }
+        return method_exists($auth, 'retrieveUsers');
+    }
+
+    public function dokuWikiDisplayName(string $username): string
+    {
+        $info = $this->dokuWikiUserInfo($username);
+        if ($info === null) {
+            return '';
+        }
+        $name = trim((string)($info['name'] ?? ''));
+        return $name;
+    }
+
+    /**
+     * @return array<string, string> username => displayName
+     */
+    public function retrieveDokuWikiUsers(): array
+    {
+        global $auth;
+        if (!$this->dokuWikiCanListUsers()) {
+            return [];
+        }
+
+        $raw = $auth->retrieveUsers(0, 0, []);
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $users = [];
+        foreach ($raw as $username => $info) {
+            $username = is_string($username) ? $username : '';
+            if ($username === '') {
+                continue;
+            }
+            $displayName = '';
+            if (is_array($info) && isset($info['name'])) {
+                $displayName = trim((string)$info['name']);
+            }
+            $users[$username] = $displayName;
+        }
+        return $users;
+    }
+
+    public function dokuWikiUserInfo(string $username): ?array
+    {
+        $username = trim($username);
+        if ($username === '') {
+            return null;
+        }
+
+        global $auth;
+        if (isset($auth) && is_object($auth) && method_exists($auth, 'getUserData')) {
+            $data = $auth->getUserData($username);
+            return is_array($data) ? $data : null;
+        }
+
+        if (function_exists('auth_getUserData')) {
+            $data = auth_getUserData($username);
+            return is_array($data) ? $data : null;
+        }
+
+        return null;
     }
 
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
@@ -1525,11 +1669,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $name = $this->cleanText($this->requireString($input, 'name', 120), 120);
         $description = $this->cleanText($this->optionalString($input, 'description', 1000), 1000, true);
         $maxHours = $this->requireHourRule($input, 'maxBookingHours', false);
-        $weeklyHours = $this->requireHourRule($input, 'weeklyQuotaHours', true);
-        if ($weeklyHours !== 0 && $weeklyHours < $maxHours) {
+        $weeklyHours = $this->requireHourRule($input, 'weeklyQuotaHours', false);
+        if ($weeklyHours < $maxHours) {
             throw new InstrumentBookingException(
                 'INVALID_INPUT',
-                'The weekly limit must be zero or at least the maximum booking duration.',
+                'The weekly limit must be at least the maximum booking duration.',
                 400
             );
         }
