@@ -43,7 +43,6 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
         $base = defined('DOKU_BASE') ? DOKU_BASE : '';
         $ajaxUrl = $base . 'lib/exe/ajax.php?call=instrumentbooking';
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
-        $vendorCss = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.css';
 
         $helper = new helper_plugin_instrumentbooking();
         $timezone = 'America/Los_Angeles';
@@ -64,7 +63,6 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
             $updatedAttribute .= ' data-updated-date="' . $this->escape($updated['date']) . '"';
         }
 
-        $renderer->doc .= '<link rel="stylesheet" href="' . $this->escape($vendorCss) . '">' . "\n";
         $renderer->doc .= '<div id="instrument-booking-app" class="instrument-booking-app"'
             . ' data-ajax-url="' . $this->escape($ajaxUrl) . '"'
             . $updatedAttribute

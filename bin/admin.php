@@ -72,7 +72,7 @@ function load_dokuwiki_for_auth(): void
 {
     $root = getenv('DOKUWIKI_ROOT');
     if (!is_string($root) || $root === '') {
-        $guess = dirname(__DIR__, 3);
+        $guess = dirname(__DIR__, 4);
         if (is_file($guess . DIRECTORY_SEPARATOR . 'inc' . DIRECTORY_SEPARATOR . 'init.php')) {
             $root = $guess;
         }

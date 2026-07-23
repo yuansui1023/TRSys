@@ -44,7 +44,7 @@ no additional `instrumentbooking/` wrapper directory.
 │   └── cleanup.php                    retention cleanup
 ├── conf/                              DokuWiki plugin configuration metadata
 ├── db/schema.sql                      SQLite schema
-├── lang/                              English and Chinese translations
+├── lang/                              DokuWiki messages and setting labels
 ├── tests/                             PHP and JavaScript tests
 └── vendor/fullcalendar/               locally bundled FullCalendar Standard
 ```
@@ -108,8 +108,12 @@ it:
 sudo install -d -o root -g root -m 0755 \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking"
 sudo rsync -a \
-  --exclude='.git/' \
+  --exclude='.git*' \
+  --exclude='.cursor/' \
   --exclude='.DS_Store' \
+  --exclude='README.md' \
+  --exclude='SECURITY.md' \
+  --exclude='tests/' \
   "$TRSYS_SOURCE/" \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
 ```
@@ -275,9 +279,13 @@ Then update and redeploy:
 
 ```sh
 git -C "$TRSYS_SOURCE" pull
-sudo rsync -a --delete \
-  --exclude='.git/' \
+sudo rsync -a --delete --delete-excluded \
+  --exclude='.git*' \
+  --exclude='.cursor/' \
   --exclude='.DS_Store' \
+  --exclude='README.md' \
+  --exclude='SECURITY.md' \
+  --exclude='tests/' \
   "$TRSYS_SOURCE/" \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
 sudo -u www-data env DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
@@ -286,7 +294,9 @@ sudo -u www-data env DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
 ```
 
 The live configuration and SQLite database are outside the deployed plugin
-directory, so the `rsync --delete` command above does not overwrite them.
+directory, so the cleanup flags above do not overwrite them. They do remove
+stale repository-only files from the plugin directory; verify
+`DOKUWIKI_ROOT` before running the command.
 
 ## Backups and Cleanup
 

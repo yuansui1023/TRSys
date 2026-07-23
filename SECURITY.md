@@ -7,7 +7,7 @@ on DokuWiki authentication plus the ACL of the page containing
 ## Preserved Controls
 
 - DokuWiki login is required for all AJAX operations.
-- Usernames and groups are read from the DokuWiki session, never from the request body.
+- The authenticated username is read from the DokuWiki session, never from the request body.
 - TRSys administrator rights come only from the SQLite `plugin_admins` table.
 - Candidate administrators are enumerated with the current auth backend `retrieveUsers()` API when `canDo('getUsers')` is true; passwords, emails, and groups are never returned.
 - Adding an administrator re-validates the username with `getUserData()` before insert and rejects username arrays.
@@ -15,7 +15,7 @@ on DokuWiki authentication plus the ACL of the page containing
 - SQL uses PDO prepared statements.
 - SQLite writes use `BEGIN IMMEDIATE` transactions for conflict checks and updates.
 - SQLite busy/locked errors are mapped to `DATABASE_BUSY`.
-- Titles and notes have length limits and are stripped of HTML.
+- Notes have length limits and are stripped of HTML.
 - Frontend rendering uses text nodes for user-controlled fields.
 - Every authenticated user with access to the booking page can see complete
   reservation details, including username and note. This is an intentional

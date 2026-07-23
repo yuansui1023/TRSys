@@ -88,10 +88,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     public function validateConfig(array $config): array
     {
         $config += [
-            'manager_groups' => [],
             'cancelled_retention_days' => 180,
             'history_retention_days' => 730,
-            'instruments' => [],
         ];
 
         if (empty($config['database_path']) || !is_string($config['database_path'])) {
@@ -104,31 +102,6 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             new DateTimeZone($config['timezone']);
         } catch (Throwable $e) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The lab timezone is invalid.', 500);
-        }
-
-        if (!is_array($config['manager_groups']) || !is_array($config['instruments'])) {
-            throw new InstrumentBookingException('INVALID_INPUT', 'The booking system configuration is invalid.', 500);
-        }
-
-        foreach ($config['instruments'] as $code => $instrument) {
-            if (!is_string($code) || !preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/i', $code)) {
-                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument code configuration is invalid.', 500);
-            }
-            if (!is_array($instrument)) {
-                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument configuration is invalid.', 500);
-            }
-            $required = ['name', 'description', 'allowed_groups', 'min_minutes', 'max_minutes', 'buffer_before_minutes', 'buffer_after_minutes', 'color', 'enabled'];
-            foreach ($required as $key) {
-                if (!array_key_exists($key, $instrument)) {
-                    throw new InstrumentBookingException('INVALID_INPUT', 'The instrument configuration is missing required fields.', 500);
-                }
-            }
-            if (!is_array($instrument['allowed_groups']) || (int)$instrument['min_minutes'] < 1 || (int)$instrument['max_minutes'] < (int)$instrument['min_minutes']) {
-                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument group or time limit configuration is invalid.', 500);
-            }
-            if ((int)$instrument['buffer_before_minutes'] < 0 || (int)$instrument['buffer_after_minutes'] < 0) {
-                throw new InstrumentBookingException('INVALID_INPUT', 'The instrument buffer configuration is invalid.', 500);
-            }
         }
 
         $config['cancelled_retention_days'] = max(1, (int)$config['cancelled_retention_days']);
@@ -1175,35 +1148,6 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
-    public function migrateConfiguredInstruments(PDO $pdo, array $config, ?int $nowTimestamp = null): int
-    {
-        $this->assertSchemaCurrent($pdo);
-        $now = $nowTimestamp ?? time();
-        $stmt = $pdo->prepare(
-            'INSERT INTO instruments (
-                code, name, description, max_booking_minutes,
-                weekly_quota_minutes, created_at, updated_at
-             ) VALUES (
-                :code, :name, :description, :max_booking_minutes,
-                0, :created_at, :updated_at
-             )
-             ON CONFLICT(code) DO NOTHING'
-        );
-        $inserted = 0;
-        foreach ($config['instruments'] as $code => $instrument) {
-            $stmt->execute([
-                ':code' => $code,
-                ':name' => $this->cleanText((string)$instrument['name'], 120),
-                ':description' => $this->cleanText((string)$instrument['description'], 1000, true),
-                ':max_booking_minutes' => $this->normalizedLegacyMaximum((int)$instrument['max_minutes']),
-                ':created_at' => $now,
-                ':updated_at' => $now,
-            ]);
-            $inserted += $stmt->rowCount();
-        }
-        return $inserted;
-    }
-
     private function migrateSchemaV1ToV2(PDO $pdo): void
     {
         $this->beginImmediate($pdo);
@@ -1316,12 +1260,6 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return $row === false ? null : $row;
     }
 
-    private function normalizedLegacyMaximum(int $minutes): int
-    {
-        $minutes = max(30, min(10080, $minutes));
-        return max(30, intdiv($minutes, 30) * 30);
-    }
-
     public function requireAuthenticated(array $context): void
     {
         if (empty($context['user'])) {
@@ -1338,24 +1276,6 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             return false;
         }
         return $this->findPluginAdmin($pdo, (string)$context['user']) !== null;
-    }
-
-    /**
-     * TRSys Admin check. Ignores DokuWiki superuser, auth_isadmin(), and manager_groups.
-     * Only plugin_admins.username grants access.
-     */
-    public function isManager(array $config, array $context, ?PDO $pdo = null): bool
-    {
-        unset($config);
-        if ($pdo === null) {
-            return false;
-        }
-        return $this->isPluginAdmin($pdo, $context);
-    }
-
-    public function userHasInstrumentAccess(array $instrument, array $context): bool
-    {
-        return !empty($context['user']);
     }
 
     public function requireAdmin(array $config, PDO $pdo, array $context): void

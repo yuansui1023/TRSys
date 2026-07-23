@@ -142,25 +142,10 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
 
     private function currentContext(): array
     {
-        global $USERINFO, $INFO;
-
         $user = $_SERVER['REMOTE_USER'] ?? '';
-        $groups = [];
-        if (isset($USERINFO['grps']) && is_array($USERINFO['grps'])) {
-            $groups = array_values(array_filter(array_map('strval', $USERINFO['grps'])));
-        }
-
-        $isAdmin = false;
-        if (function_exists('auth_isadmin')) {
-            $isAdmin = (bool)auth_isadmin();
-        } elseif (isset($INFO['isadmin'])) {
-            $isAdmin = (bool)$INFO['isadmin'];
-        }
 
         return [
             'user' => (string)$user,
-            'groups' => $groups,
-            'isSuperuser' => $isAdmin,
         ];
     }
 
