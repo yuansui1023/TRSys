@@ -68,6 +68,15 @@ function booking(array $extra = []): array
     ], $extra);
 }
 
+function event_range(): array
+{
+    return [
+        'instrumentCode' => 'sem-01',
+        'start' => '2029-12-31T00:00:00-08:00',
+        'end' => '2030-01-02T00:00:00-08:00',
+    ];
+}
+
 function uuid_for_test(): string
 {
     static $i = 1;
@@ -182,6 +191,39 @@ test('ordinary user cannot modify another user booking', function () {
     });
 });
 
+test('authorized user sees complete details for another user booking', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user('alice'), booking([
+        'title' => 'Alice microscopy session',
+        'note' => 'Use the low-vacuum detector',
+    ]));
+
+    $events = $h->listEvents($c, $pdo, user('bob'), event_range())['events'];
+    assert_true(count($events) === 1, 'Expected one visible event');
+    assert_true($events[0]['title'] === 'Alice microscopy session', 'Expected the real event title');
+    assert_true($events[0]['ownerUser'] === 'alice', 'Expected the event owner');
+    assert_true($events[0]['note'] === 'Use the low-vacuum detector', 'Expected the event note');
+    assert_true($events[0]['eventType'] === 'booking', 'Expected the event type');
+    assert_true($events[0]['canEdit'] === false, 'Other users must not be able to edit the booking');
+    assert_true($events[0]['canCancel'] === false, 'Other users must not be able to cancel the booking');
+});
+
+test('user without instrument access cannot read events', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user('alice'), booking());
+
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+        $h->listEvents($c, $pdo, user('mallory', ['other-users']), event_range());
+    });
+});
+
+test('anonymous user cannot read events', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('AUTH_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->listEvents($c, $pdo, user('', []), event_range());
+    });
+});
+
 test('ordinary user cannot create block', function () {
     [$h, $c, $pdo] = fixture();
     assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
@@ -193,6 +235,60 @@ test('manager can create block', function () {
     [$h, $c, $pdo] = fixture();
     $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking(['eventType' => 'block', 'title' => 'Maintenance']))['event'];
     assert_true($event['eventType'] === 'block');
+});
+
+test('existing event type cannot be changed', function () {
+    [$h, $c, $pdo] = fixture();
+    $manager = user('manager', ['instrument-admin']);
+    $event = $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'title' => 'Maintenance',
+    ]))['event'];
+
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $manager, $event) {
+        $h->updateEvent($c, $pdo, $manager, [
+            'eventId' => $event['id'],
+            'instrumentCode' => 'sem-01',
+            'eventType' => 'booking',
+            'title' => 'Converted booking',
+            'note' => '',
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T10:00:00-08:00',
+        ]);
+    });
+});
+
+test('ordinary user cannot modify or cancel outage', function () {
+    [$h, $c, $pdo] = fixture();
+    $manager = user('manager', ['instrument-admin']);
+    $event = $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'title' => 'Vacuum pump outage',
+        'note' => 'Do not operate the instrument',
+    ]))['event'];
+
+    $visible = $h->listEvents($c, $pdo, user('alice'), event_range())['events'][0];
+    assert_true($visible['title'] === 'Vacuum pump outage', 'Expected the outage title');
+    assert_true($visible['ownerUser'] === 'manager', 'Expected the outage owner');
+    assert_true($visible['note'] === 'Do not operate the instrument', 'Expected the outage note');
+    assert_true($visible['eventType'] === 'block', 'Expected the outage event type');
+    assert_true($visible['canEdit'] === false, 'Ordinary users must not be able to edit outages');
+    assert_true($visible['canCancel'] === false, 'Ordinary users must not be able to cancel outages');
+
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
+        $h->updateEvent($c, $pdo, user('alice'), [
+            'eventId' => $event['id'],
+            'instrumentCode' => 'sem-01',
+            'eventType' => 'block',
+            'title' => 'Unauthorized outage change',
+            'note' => '',
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T10:00:00-08:00',
+        ]);
+    });
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
+        $h->cancelEvent($c, $pdo, user('alice'), ['eventId' => $event['id']]);
+    });
 });
 
 test('end before start is rejected', function () {

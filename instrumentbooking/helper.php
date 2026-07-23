@@ -188,6 +188,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
     public function listEvents(array $config, PDO $pdo, array $context, array $input): array
     {
+        $this->requireAuthenticated($context);
         $instrumentCode = $this->requireInstrumentCode($input);
         $instrument = $this->requireInstrument($config, $instrumentCode, false);
         if (!$this->canViewInstrument($config, $instrument, $context)) {
@@ -314,7 +315,10 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
             $instrumentCode = $this->requireInstrumentCode($input + ['instrumentCode' => $existing['instrument_code']]);
             $instrument = $this->requireInstrument($config, $instrumentCode, true);
-            $eventType = array_key_exists('eventType', $input) ? $this->optionalEventType($input) : $existing['event_type'];
+            if (array_key_exists('eventType', $input) && $this->optionalEventType($input) !== $existing['event_type']) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'The event type cannot be changed after creation.', 400);
+            }
+            $eventType = $existing['event_type'];
             if ($eventType === 'block' && !$this->isManager($config, $context)) {
                 throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
             }
@@ -584,28 +588,20 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
     private function eventForResponse(array $config, array $event, array $context): array
     {
-        $isManager = $this->isManager($config, $context);
-        $isOwner = $event['owner_user'] === ($context['user'] ?? '');
-        $visible = $isManager || $isOwner;
-
-        $response = [
+        return [
             'id' => (int)$event['id'],
             'instrumentCode' => $event['instrument_code'],
             'start' => $this->formatIso((int)$event['start_ts'], $config['timezone']),
             'end' => $this->formatIso((int)$event['end_ts'], $config['timezone']),
-            'title' => $visible ? $event['title'] : 'Reserved',
+            'title' => $event['title'],
+            'eventType' => $event['event_type'],
+            'note' => $event['note'],
+            'ownerUser' => $event['owner_user'],
+            'createdAt' => $this->formatIso((int)$event['created_at'], $config['timezone']),
+            'updatedAt' => $this->formatIso((int)$event['updated_at'], $config['timezone']),
             'canEdit' => $this->canEditEvent($config, $event, $context),
             'canCancel' => $this->canCancelEvent($config, $event, $context),
         ];
-
-        if ($visible) {
-            $response['eventType'] = $event['event_type'];
-            $response['note'] = $event['note'];
-            $response['ownerUser'] = $event['owner_user'];
-            $response['createdAt'] = $this->formatIso((int)$event['created_at'], $config['timezone']);
-            $response['updatedAt'] = $this->formatIso((int)$event['updated_at'], $config['timezone']);
-        }
-        return $response;
     }
 
     private function validatedTimesForInstrument(array $instrument, array $input): array
