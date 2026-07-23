@@ -177,7 +177,13 @@ check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scr
     assert.ok(css.indexOf('border-top-color: transparent') !== -1);
     assert.ok(css.indexOf('overflow-y: scroll') !== -1);
     assert.ok(css.indexOf('scrollbar-color:') !== -1);
-    assert.ok(css.indexOf('height: calc(100dvh - 32px)') !== -1);
+    assert.ok(css.indexOf('position: fixed') !== -1);
+    assert.ok(css.indexOf('top: 16px') !== -1);
+    assert.ok(css.indexOf('right: 16px') !== -1);
+    assert.ok(css.indexOf('bottom: 16px') !== -1);
+    assert.ok(css.indexOf('left: 16px') !== -1);
+    assert.ok(css.indexOf('height: auto') !== -1);
+    assert.ok(css.indexOf('max-height: none') !== -1);
     assert.ok(script.indexOf("height: '100%'") !== -1);
     assert.ok(script.indexOf('scrollTimeReset: false') !== -1);
     assert.ok(script.indexOf('scheduleInitialTimeSlotScroll') !== -1);
@@ -186,13 +192,15 @@ check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scr
     assert.ok(script.indexOf("slotMaxTime: '24:00:00'") !== -1);
 });
 
-check('top nav order is Settings, Return, Instrument without toolbar', function () {
+check('top nav order is Settings, Return, instrument selector without a visible label', function () {
     var buildStart = script.indexOf('function buildShell(state)');
     var buildEnd = script.indexOf('function refreshInstrumentSelect');
     assert.ok(buildStart !== -1 && buildEnd > buildStart);
     var buildShell = script.slice(buildStart, buildEnd);
     assert.ok(buildShell.indexOf("ib-toolbar") === -1);
     assert.ok(buildShell.indexOf("ib-instrument-field") !== -1);
+    assert.ok(buildShell.indexOf("text('Instrument')") === -1);
+    assert.ok(buildShell.indexOf("setAttribute('aria-label', 'Instrument')") !== -1);
     var settingsPos = buildShell.indexOf("button('button', 'Settings')");
     var returnPos = buildShell.indexOf("Return to Lab Wiki");
     var instrumentPos = buildShell.indexOf("ib-instrument-select");

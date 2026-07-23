@@ -142,9 +142,9 @@
         wikiLink.textContent = 'Return to Lab Wiki';
         appNav.appendChild(wikiLink);
 
-        var selectWrap = el('label', 'ib-instrument-field');
-        selectWrap.appendChild(text('Instrument'));
+        var selectWrap = el('div', 'ib-instrument-field');
         var select = el('select', 'ib-instrument-select');
+        select.setAttribute('aria-label', 'Instrument');
         select.addEventListener('change', function () {
             state.selectedInstrument = select.value;
             if (state.calendar) {
