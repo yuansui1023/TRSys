@@ -170,14 +170,18 @@ check('Monday-aligned weeks still detect next week', function () {
     assert.strictEqual(classifyWeekNowLineMode(nextStart, nextEnd, now, timezone), 'next');
 });
 
-check('timegrid hides half-hour minor lines and collapses bottom blank space', function () {
+check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scroll', function () {
     var stylePath = path.join(__dirname, '..', 'style.css');
     var css = fs.readFileSync(stylePath, 'utf8');
     assert.ok(css.indexOf('.fc-timegrid-slot-minor') !== -1);
     assert.ok(css.indexOf('border-top-color: transparent') !== -1);
-    assert.ok(css.indexOf('.fc-timegrid-body') !== -1);
-    assert.ok(css.indexOf('min-height: 0') !== -1);
-    assert.ok(script.indexOf("contentHeight: 'auto'") !== -1);
+    assert.ok(css.indexOf('overflow-y: scroll') !== -1);
+    assert.ok(css.indexOf('scrollbar-color:') !== -1);
+    assert.ok(css.indexOf('height: 100dvh') !== -1);
+    assert.ok(script.indexOf("height: '100%'") !== -1);
+    assert.ok(script.indexOf('scrollTimeReset: false') !== -1);
+    assert.ok(script.indexOf('scheduleInitialTimeSlotScroll') !== -1);
+    assert.ok(script.indexOf('timeSlotScrollInitialized') !== -1);
     assert.ok(script.indexOf("slotDuration: '00:30:00'") !== -1);
     assert.ok(script.indexOf("slotMaxTime: '24:00:00'") !== -1);
 });
