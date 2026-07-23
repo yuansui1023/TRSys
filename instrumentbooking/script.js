@@ -60,7 +60,7 @@
             state.selectedInstrument = state.instruments[0].code;
             refreshInstrumentSelect(root, state);
             initCalendar(root, state);
-            showStatus(root, 'Lab timezone: ' + state.timezone, false);
+            showStatus(root, '', false);
         }).catch(function (err) {
             showStatus(root, err.message || 'Failed to load instruments.', true);
         });
@@ -178,7 +178,7 @@
                 if (isLoading) {
                     showStatus(root, 'Loading bookings...', false);
                 } else {
-                    showStatus(root, 'Lab timezone: ' + state.timezone, false);
+                    showStatus(root, '', false);
                 }
             }
         });
