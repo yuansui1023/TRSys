@@ -487,6 +487,109 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return null;
     }
 
+    public function pluginCodeUpdatedTimestamp(?string $pluginRoot = null): ?int
+    {
+        $root = $pluginRoot ?? __DIR__;
+        $root = realpath($root);
+        if ($root === false || !is_dir($root)) {
+            return null;
+        }
+
+        $excludeDirs = ['.git' => true, 'tests' => true];
+        $excludeFiles = [
+            'readme.md' => true,
+            'install.md' => true,
+            'security.md' => true,
+            'license' => true,
+            'third_party_licenses.md' => true,
+            '.ds_store' => true,
+        ];
+        $includeExtensions = [
+            'php' => true,
+            'js' => true,
+            'css' => true,
+            'sql' => true,
+        ];
+
+        $latest = null;
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $fileInfo) {
+            if (!$fileInfo->isFile()) {
+                continue;
+            }
+            $relative = substr($fileInfo->getPathname(), strlen($root) + 1);
+            $relative = str_replace('\\', '/', $relative);
+            $parts = explode('/', $relative);
+            if (isset($excludeDirs[$parts[0]])) {
+                continue;
+            }
+            $basename = strtolower($fileInfo->getFilename());
+            if (isset($excludeFiles[$basename])) {
+                continue;
+            }
+            $extension = strtolower($fileInfo->getExtension());
+            $included = isset($includeExtensions[$extension]) || $basename === 'plugin.info.txt';
+            if (!$included) {
+                continue;
+            }
+            $mtime = $fileInfo->getMTime();
+            if (!is_int($mtime) || $mtime <= 0) {
+                continue;
+            }
+            if ($latest === null || $mtime > $latest) {
+                $latest = $mtime;
+            }
+        }
+
+        return $latest;
+    }
+
+    public function pluginInfoFallbackDate(?string $pluginRoot = null): ?string
+    {
+        $root = $pluginRoot ?? __DIR__;
+        $path = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'plugin.info.txt';
+        if (!is_file($path)) {
+            return null;
+        }
+        $contents = @file_get_contents($path);
+        if (!is_string($contents)) {
+            return null;
+        }
+        if (preg_match('/^date\s+(\d{4}-\d{2}-\d{2})\s*$/mi', $contents, $matches) !== 1) {
+            return null;
+        }
+        return $matches[1];
+    }
+
+    public function formatPluginUpdatedDate(int $timestamp, string $timezone): string
+    {
+        return (new DateTimeImmutable('@' . $timestamp))
+            ->setTimezone(new DateTimeZone($timezone))
+            ->format('Y-m-d');
+    }
+
+    /**
+     * @return array{timestamp:?int, date:?string}
+     */
+    public function pluginUpdatedMeta(?string $pluginRoot = null, ?string $timezone = null): array
+    {
+        $timezone = $timezone ?: 'America/Los_Angeles';
+        $timestamp = $this->pluginCodeUpdatedTimestamp($pluginRoot);
+        if ($timestamp !== null) {
+            return [
+                'timestamp' => $timestamp,
+                'date' => $this->formatPluginUpdatedDate($timestamp, $timezone),
+            ];
+        }
+        $fallback = $this->pluginInfoFallbackDate($pluginRoot);
+        return [
+            'timestamp' => null,
+            'date' => $fallback,
+        ];
+    }
+
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
         $this->requireAdmin($config, $pdo, $context);

@@ -53,6 +53,7 @@
             weekNowLineFrame: null,
             weekNowLineResizeHandler: null,
             weekNowLinePageHideHandler: null,
+            updatedTimestamp: Number(root.getAttribute('data-updated-timestamp') || '') || 0,
             updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
         };
@@ -63,6 +64,7 @@
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
+            refreshUpdatedLabel(state);
             state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
             var settingsButton = root.querySelector('.ib-settings-button');
@@ -109,12 +111,10 @@
         var appTitle = el('h1', 'ib-app-title');
         appTitle.textContent = 'TRSys';
         titleRow.appendChild(appTitle);
-        if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
-            var updated = el('time', 'ib-app-updated');
-            updated.setAttribute('datetime', state.updatedDate);
-            updated.textContent = 'Last updated: ' + state.updatedDate;
-            titleRow.appendChild(updated);
-        }
+        var updated = el('time', 'ib-app-updated');
+        updated.hidden = true;
+        titleRow.appendChild(updated);
+        refreshUpdatedLabel(state);
         var subtitle = el('p', 'ib-app-subtitle');
         subtitle.textContent = 'Tool Reservation System';
         identity.appendChild(titleRow);
@@ -205,8 +205,8 @@
             },
             headerToolbar: {
                 left: 'prev,next today',
-                center: 'title',
-                right: ''
+                center: '',
+                right: 'title'
             },
             buttonText: {
                 today: 'Today'
@@ -1473,6 +1473,34 @@
     function formatTimeInTimezone(timestamp, timezone) {
         var parts = zonedParts(new Date(timestamp), timezone);
         return parts.hour + ':' + parts.minute;
+    }
+
+    function refreshUpdatedLabel(state) {
+        var node = state.root.querySelector('.ib-app-updated');
+        if (!node) {
+            return;
+        }
+        var date = '';
+        if (state.updatedTimestamp > 0 && state.timezone) {
+            date = formatDateInTimezone(state.updatedTimestamp * 1000, state.timezone);
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
+            date = state.updatedDate;
+        }
+        if (!date) {
+            node.hidden = true;
+            node.textContent = '';
+            node.removeAttribute('datetime');
+            return;
+        }
+        state.updatedDate = date;
+        node.hidden = false;
+        node.setAttribute('datetime', date);
+        node.textContent = 'Last updated: ' + date;
+    }
+
+    function formatDateInTimezone(timestampMs, timezone) {
+        var parts = zonedParts(new Date(timestampMs), timezone);
+        return parts.year + '-' + parts.month + '-' + parts.day;
     }
 
     function ensureExplicitOffset(value, timezone) {

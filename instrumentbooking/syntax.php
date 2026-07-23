@@ -4,6 +4,8 @@ if (!defined('DOKU_INC')) {
     die();
 }
 
+require_once __DIR__ . '/helper.php';
+
 class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
 {
     public function getType()
@@ -42,19 +44,30 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
         $ajaxUrl = $base . 'lib/exe/ajax.php?call=instrumentbooking';
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
         $vendorCss = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.css';
-        $info = $this->getInfo();
-        $updatedDate = isset($info['date']) ? (string)$info['date'] : '';
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $updatedDate) !== 1) {
-            $updatedDate = '';
+
+        $helper = new helper_plugin_instrumentbooking();
+        $timezone = 'America/Los_Angeles';
+        try {
+            $config = $helper->loadBookingConfig();
+            if (!empty($config['timezone']) && is_string($config['timezone'])) {
+                $timezone = $config['timezone'];
+            }
+        } catch (Throwable $e) {
+            // Keep the default laboratory timezone when local config is unavailable.
         }
-        $updatedDateAttribute = $updatedDate === ''
-            ? ''
-            : ' data-updated-date="' . $this->escape($updatedDate) . '"';
+        $updated = $helper->pluginUpdatedMeta(__DIR__, $timezone);
+        $updatedAttribute = '';
+        if ($updated['timestamp'] !== null) {
+            $updatedAttribute .= ' data-updated-timestamp="' . $this->escape((string)$updated['timestamp']) . '"';
+        }
+        if (is_string($updated['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $updated['date']) === 1) {
+            $updatedAttribute .= ' data-updated-date="' . $this->escape($updated['date']) . '"';
+        }
 
         $renderer->doc .= '<link rel="stylesheet" href="' . $this->escape($vendorCss) . '">' . "\n";
         $renderer->doc .= '<div id="instrument-booking-app" class="instrument-booking-app"'
             . ' data-ajax-url="' . $this->escape($ajaxUrl) . '"'
-            . $updatedDateAttribute
+            . $updatedAttribute
             . ' data-fullcalendar-js="' . $this->escape($vendorJs) . '">'
             . '<p>' . $this->escape($this->getLang('loading') ?: 'Loading instrument bookings...') . '</p>'
             . '</div>' . "\n";

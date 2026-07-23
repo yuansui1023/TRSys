@@ -1827,6 +1827,90 @@ test('unsupported dokuwiki user enumeration returns explicit payload', function 
     assert_true($result['message'] === 'The current DokuWiki authentication backend does not support listing users.');
 });
 
+test('plugin code updated timestamp uses newest included file', function () {
+    $h = new TestInstrumentBookingHelper();
+    $root = sys_get_temp_dir() . '/ib-updated-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    mkdir($root . '/db');
+    mkdir($root . '/tests');
+    file_put_contents($root . '/helper.php', "<?php\n");
+    file_put_contents($root . '/script.js', "console.log(1);\n");
+    file_put_contents($root . '/db/schema.sql', "SELECT 1;\n");
+    file_put_contents($root . '/README.md', "docs\n");
+    file_put_contents($root . '/tests/run.php', "<?php\n");
+    file_put_contents($root . '/.DS_Store', "ignore\n");
+    file_put_contents($root . '/plugin.info.txt', "date 2026-01-01\n");
+
+    touch($root . '/helper.php', 1700000000);
+    touch($root . '/script.js', 1700001000);
+    touch($root . '/db/schema.sql', 1700005000);
+    touch($root . '/README.md', 1800000000);
+    touch($root . '/tests/run.php', 1800000000);
+    touch($root . '/.DS_Store', 1800000000);
+    touch($root . '/plugin.info.txt', 1700002000);
+
+    $latest = $h->pluginCodeUpdatedTimestamp($root);
+    assert_true($latest === 1700005000, 'Expected subdirectory sql file mtime');
+    $meta = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($meta['timestamp'] === 1700005000);
+    assert_true($meta['date'] === $h->formatPluginUpdatedDate(1700005000, 'America/Los_Angeles'));
+    assert_true(!str_contains(json_encode($meta), $root));
+
+    // Cleanup
+    foreach ([$root . '/helper.php', $root . '/script.js', $root . '/db/schema.sql', $root . '/README.md', $root . '/tests/run.php', $root . '/.DS_Store', $root . '/plugin.info.txt'] as $file) {
+        @unlink($file);
+    }
+    @rmdir($root . '/db');
+    @rmdir($root . '/tests');
+    @rmdir($root);
+});
+
+test('plugin updated date uses America/Los_Angeles across UTC day boundary', function () {
+    $h = new TestInstrumentBookingHelper();
+    // 2026-07-23 00:30:00 UTC => 2026-07-22 17:30:00 America/Los_Angeles
+    $utcMorning = (new DateTimeImmutable('2026-07-23T00:30:00+00:00'))->getTimestamp();
+    assert_true($h->formatPluginUpdatedDate($utcMorning, 'America/Los_Angeles') === '2026-07-22');
+    // 2026-07-23 08:00:00 UTC => 2026-07-23 01:00:00 America/Los_Angeles
+    $utcLater = (new DateTimeImmutable('2026-07-23T08:00:00+00:00'))->getTimestamp();
+    assert_true($h->formatPluginUpdatedDate($utcLater, 'America/Los_Angeles') === '2026-07-23');
+});
+
+test('plugin updated meta falls back to plugin.info.txt when no code files exist', function () {
+    $h = new class extends TestInstrumentBookingHelper {
+        public function pluginCodeUpdatedTimestamp(?string $pluginRoot = null): ?int
+        {
+            return null;
+        }
+    };
+    $root = sys_get_temp_dir() . '/ib-fallback-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    file_put_contents($root . '/plugin.info.txt', "base x\ndate 2026-03-15\n");
+
+    $withInfo = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($withInfo['timestamp'] === null);
+    assert_true($withInfo['date'] === '2026-03-15');
+    assert_true(!str_contains(json_encode($withInfo), $root));
+
+    unlink($root . '/plugin.info.txt');
+    $empty = $h->pluginUpdatedMeta($root, 'America/Los_Angeles');
+    assert_true($empty['timestamp'] === null);
+    assert_true($empty['date'] === null);
+    assert_true(!str_contains(json_encode($empty), $root));
+
+    @rmdir($root);
+});
+
+test('plugin info fallback date parses valid date field', function () {
+    $h = new TestInstrumentBookingHelper();
+    $root = sys_get_temp_dir() . '/ib-info-only-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    file_put_contents($root . '/plugin.info.txt', "base instrumentbooking\ndate 2025-12-31\n");
+    assert_true($h->pluginInfoFallbackDate($root) === '2025-12-31');
+    @unlink($root . '/plugin.info.txt');
+    assert_true($h->pluginInfoFallbackDate($root) === null);
+    @rmdir($root);
+});
+
 $failures = 0;
 foreach ($tests as [$name, $fn]) {
     try {
