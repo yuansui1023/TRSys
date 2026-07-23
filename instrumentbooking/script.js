@@ -65,10 +65,12 @@
             state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
             var settingsButton = root.querySelector('.ib-settings-button');
-            if (state.isAdmin) {
-                settingsButton.hidden = false;
-            } else {
-                settingsButton.remove();
+            if (settingsButton) {
+                if (data.isAdmin === true) {
+                    settingsButton.hidden = false;
+                } else {
+                    settingsButton.remove();
+                }
             }
             if (data.migrationRequired) {
                 showStatus(root, data.migrationMessage || 'The booking database must be migrated.', true);
@@ -89,6 +91,10 @@
             initCalendar(root, state);
             showStatus(root, '', false);
         }).catch(function (err) {
+            var settingsButton = root.querySelector('.ib-settings-button');
+            if (settingsButton) {
+                settingsButton.hidden = true;
+            }
             showStatus(root, err.message || 'Failed to load instruments.', true);
         });
     }

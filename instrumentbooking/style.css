@@ -76,11 +76,11 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-text: #f7f5fb;
     --ib-text-secondary: #b8b3c2;
     --ib-text-muted: #857d94;
-    --ib-accent: #8b5cf6;
-    --ib-accent-hover: #a78bfa;
-    --ib-accent-soft: rgba(139, 92, 246, 0.18);
-    --ib-purple: #221332;
-    --ib-purple-hover: #361d4c;
+    --ib-accent: rgba(139, 92, 246, 0.7);
+    --ib-accent-hover: rgba(167, 139, 250, 0.7);
+    --ib-accent-soft: rgba(139, 92, 246, 0.7);
+    --ib-purple: rgba(34, 19, 50, 0.7);
+    --ib-purple-hover: rgba(54, 29, 76, 0.7);
     --ib-control-bg: var(--ib-purple);
     --ib-control-hover: var(--ib-purple-hover);
     --ib-control-active: var(--ib-control-hover);
@@ -182,6 +182,10 @@ body.instrument-booking-page #dokuwiki__content .page {
     background: var(--ib-button-hover);
     outline: none;
     box-shadow: 0 0 0 3px var(--ib-control-focus);
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .ib-settings-button[hidden] {
+    display: none !important;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-toolbar {
@@ -362,8 +366,8 @@ body.instrument-booking-page #dokuwiki__content .page {
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-highlight {
-    background: rgba(139, 92, 246, 0.22);
-    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.30);
+    background: rgba(139, 92, 246, 0.7);
+    box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.7);
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-timegrid-now-indicator-line {
@@ -763,12 +767,17 @@ body.instrument-booking-page #dokuwiki__content .page {
     top: 14px;
     right: 14px;
     z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 36px;
     height: 36px;
     min-height: 36px;
     padding: 0;
-    font-size: 22px;
+    font-size: 20px;
+    font-weight: 500;
     line-height: 1;
+    text-align: center;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button[type="submit"] {
@@ -1018,7 +1027,13 @@ body.instrument-booking-page #dokuwiki__content .page {
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] .ib-dialog button.ib-dialog-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         width: 36px;
+        height: 36px;
+        min-height: 36px;
+        padding: 0;
     }
 }
 
