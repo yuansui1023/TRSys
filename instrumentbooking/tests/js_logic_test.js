@@ -267,5 +267,14 @@ check('calendar navigation is compact and desktop tool selector is four times wi
     assert.ok(/@media \(max-width: 768px\)[\s\S]*?\.ib-instrument-select\s*\{[\s\S]*?max-width:\s*none;/m.test(css));
 });
 
+check('changing tools resets the calendar scroll position to 09:00', function () {
+    var selectStart = script.indexOf("select.addEventListener('change'");
+    var selectEnd = script.indexOf('selectWrap.appendChild(select)', selectStart);
+    assert.ok(selectStart !== -1 && selectEnd > selectStart);
+    var changeHandler = script.slice(selectStart, selectEnd);
+    assert.ok(changeHandler.indexOf('state.calendar.refetchEvents()') !== -1);
+    assert.ok(changeHandler.indexOf("state.calendar.scrollToTime('09:00:00')") !== -1);
+});
+
 console.log('js_logic_test: ' + (failures === 0 ? 'ok' : failures + ' failures'));
 process.exit(failures === 0 ? 0 : 1);
