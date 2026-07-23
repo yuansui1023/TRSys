@@ -428,6 +428,7 @@ body.instrument-booking-page #dokuwiki__content .page {
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-header-toolbar .fc-toolbar-chunk:nth-child(3) {
     grid-column: 3;
     justify-self: end;
+    text-align: right;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-toolbar-title {
@@ -435,6 +436,7 @@ body.instrument-booking-page #dokuwiki__content .page {
     font-size: 22px;
     font-weight: 700;
     letter-spacing: -0.01em;
+    text-align: right;
 }
 
 .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-button-primary {
@@ -1109,13 +1111,16 @@ body.instrument-booking-page #dokuwiki__content .page {
     .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-header-toolbar .fc-toolbar-chunk:nth-child(2) {
         grid-row: 1;
         grid-column: 1;
-        justify-self: center;
+        justify-self: end;
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-header-toolbar .fc-toolbar-chunk:nth-child(3) {
-        grid-row: 3;
+        grid-row: 1;
         grid-column: 1;
-        justify-self: center;
+        display: flex;
+        justify-content: flex-end;
+        justify-self: end;
+        text-align: right;
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-toolbar-chunk {
@@ -1124,7 +1129,7 @@ body.instrument-booking-page #dokuwiki__content .page {
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-toolbar-title {
-        text-align: center;
+        text-align: right;
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] .fc .fc-button-primary {
