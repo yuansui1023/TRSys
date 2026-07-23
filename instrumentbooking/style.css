@@ -67,7 +67,8 @@
 }
 
 .instrument-booking-app .ib-dialog {
-    width: min(520px, 100%);
+    width: 100%;
+    max-width: 520px;
     max-height: 90vh;
     overflow: auto;
     border-radius: 10px;
