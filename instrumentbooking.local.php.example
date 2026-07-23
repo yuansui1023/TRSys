@@ -1,0 +1,8 @@
+<?php
+
+return [
+    'database_path' => '/var/lib/dokuwiki/instrumentbooking/bookings.sqlite3',
+    'timezone' => 'America/Los_Angeles',
+    'cancelled_retention_days' => 180,
+    'history_retention_days' => 730,
+];

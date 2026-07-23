@@ -1,6 +1,8 @@
 # Security Notes
 
-The plugin is designed for a small internal DokuWiki installation and relies on DokuWiki authentication and group membership.
+The plugin is designed for a small internal DokuWiki installation and relies
+on DokuWiki authentication plus the ACL of the page containing
+`~~INSTRUMENTBOOKING~~`.
 
 ## Preserved Controls
 
@@ -15,8 +17,12 @@ The plugin is designed for a small internal DokuWiki installation and relies on 
 - SQLite busy/locked errors are mapped to `DATABASE_BUSY`.
 - Titles and notes have length limits and are stripped of HTML.
 - Frontend rendering uses text nodes for user-controlled fields.
-- Ordinary users only see private details for their own bookings.
-- Other users' events are returned as occupied blocks without owner, title, note, or group data.
+- Every authenticated user with access to the booking page can see complete
+  reservation details, including username and note. This is an intentional
+  collaboration policy, not a privacy boundary.
+- A user can modify or cancel only their own eligible booking.
+- TRSys administrators can create outage events, but administrator status does
+  not allow editing another user's booking.
 - The SQLite database is intended to live outside the DokuWiki web root.
 - `bin/` and `db/` are not public API paths and should not be web-accessible directly.
 - Production JSON errors do not include SQL, stack traces, database paths, server paths, PHP details, or session data.
@@ -42,7 +48,9 @@ location ~ ^/lib/plugins/instrumentbooking/(bin|db)/ {
 }
 ```
 
-Keep `conf/instrumentbooking.local.php` protected by normal DokuWiki `conf/` access rules.
+Keep `conf/instrumentbooking.local.php` protected by normal DokuWiki `conf/`
+access rules. Keep the SQLite database outside the web root and make it
+writable only by the DokuWiki web-server account.
 
 ## SQLite Storage
 
