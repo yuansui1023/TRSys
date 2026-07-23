@@ -38,6 +38,8 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
                 'cancel',
                 'admin/instrument/create',
                 'admin/instrument/update',
+                'admin/instrument/delete',
+                'admin/users/add',
             ], true)) {
                 $this->requireMethod('POST');
                 $this->requireCsrfToken();
@@ -76,7 +78,7 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
             if ($helper->schemaVersion($pdo) !== helper_plugin_instrumentbooking::SCHEMA_VERSION) {
                 $data = [
                     'timezone' => $config['timezone'],
-                    'isManager' => $helper->isManager($config, $context),
+                    'isManager' => $helper->isManager($config, $context, $pdo),
                     'instruments' => [],
                     'migrationRequired' => true,
                     'migrationMessage' => 'Run: php lib/plugins/instrumentbooking/bin/install.php',
@@ -114,6 +116,26 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
         }
         if ($operation === 'admin/instrument/update') {
             return $helper->updateInstrument($config, $pdo, $context, $input);
+        }
+        if ($operation === 'admin/instrument/delete-preview') {
+            return $helper->instrumentDeletionPreview($config, $pdo, $context, $input);
+        }
+        if ($operation === 'admin/instrument/delete') {
+            return $helper->deleteInstrument($config, $pdo, $context, $input);
+        }
+        if ($operation === 'admin/users') {
+            $helper->requireAdmin($config, $pdo, $context);
+            return ['admins' => $helper->listPluginAdmins($pdo)];
+        }
+        if ($operation === 'admin/users/add') {
+            return $helper->addPluginAdmin($config, $pdo, $context, $input);
+        }
+        if ($operation === 'admin/users/remove') {
+            throw new InstrumentBookingException(
+                'ADMIN_REQUIRED',
+                'Administrators cannot be removed from the web interface. Use the server CLI revoke command.',
+                403
+            );
         }
 
         throw new InstrumentBookingException('INVALID_INPUT', 'Unknown operation.', 400);

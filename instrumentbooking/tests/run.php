@@ -854,10 +854,10 @@ function set_instrument_rules(PDO $pdo, string $code, int $maxMinutes, int $week
 
 test('regular user cannot access settings API', function () {
     [$h, $c, $pdo] = fixture();
-    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
         $h->listAdminInstruments($c, $pdo, user());
     });
-    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
         $h->createInstrument($c, $pdo, user(), [
             'name' => 'TEM-01',
             'description' => '',
@@ -1162,9 +1162,136 @@ test('idempotent retry does not duplicate cross week segments', function () {
     assert_true($count === 2, 'Expected two segments total after retry');
 });
 
-test('schema version is two after install', function () {
+test('schema version is three after install', function () {
     [$h, $c, $pdo] = fixture();
-    assert_true($h->schemaVersion($pdo) === 2);
+    assert_true($h->schemaVersion($pdo) === 3);
+});
+
+test('admin list has no web remove path and rejects remove API', function () {
+    [$h, $c, $pdo] = fixture();
+    $admin = user('manager', ['instrument-admin']);
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'ops-admin']);
+    $admins = $h->listPluginAdmins($pdo);
+    assert_true(count($admins) === 1);
+    assert_true($admins[0]['username'] === 'ops-admin');
+    assert_true(!array_key_exists('canRemove', $admins[0]));
+});
+
+test('ordinary user cannot delete instruments', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->deleteInstrument($c, $pdo, user(), [
+            'instrumentCode' => 'sem-01',
+            'confirmName' => 'SEM-01',
+        ]);
+    });
+});
+
+test('admin can delete instrument with matching confirmation', function () {
+    [$h, $c, $pdo] = fixture();
+    $admin = user('manager', ['instrument-admin']);
+    $result = $h->deleteInstrument($c, $pdo, $admin, [
+        'instrumentCode' => 'sem-01',
+        'confirmName' => 'SEM-01',
+    ]);
+    assert_true($result['deleted'] === true);
+    assert_true($h->listInstruments($c, $pdo, $admin)['instruments'] === []);
+});
+
+test('wrong confirmation name does not delete instrument', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('DELETE_CONFIRMATION_MISMATCH', function () use ($h, $c, $pdo) {
+        $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+            'instrumentCode' => 'sem-01',
+            'confirmName' => 'Wrong Name',
+        ]);
+    });
+    assert_true(count($h->listInstruments($c, $pdo, user('manager', ['instrument-admin']))['instruments']) === 1);
+});
+
+test('deleting a missing instrument returns not found', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('INSTRUMENT_NOT_FOUND', function () use ($h, $c, $pdo) {
+        $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+            'instrumentCode' => 'missing-tool',
+            'confirmName' => 'Missing',
+        ]);
+    });
+});
+
+test('deleting an instrument removes bookings outages segments and request records', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $admin = user('manager', ['instrument-admin']);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+        'requestId' => '33333333-3333-4333-8333-333333333333',
+    ]));
+    $h->createEvent($c, $pdo, $admin, booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T11:00:00-08:00',
+        'end' => '2030-01-01T12:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+        'requestId' => '44444444-4444-4444-8444-444444444444',
+    ]));
+    $h->deleteInstrument($c, $pdo, $admin, [
+        'instrumentCode' => 'sem-01',
+        'confirmName' => 'SEM-01',
+    ]);
+    assert_true((int)$pdo->query('SELECT COUNT(*) FROM events')->fetchColumn() === 0);
+    assert_true((int)$pdo->query('SELECT COUNT(*) FROM instruments')->fetchColumn() === 0);
+    assert_true(
+        (int)$pdo->query("SELECT COUNT(*) FROM events WHERE request_id = '33333333-3333-4333-8333-333333333333'")->fetchColumn() === 0
+    );
+});
+
+test('deleting one instrument leaves other instruments intact', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'tem-01' => [
+                'name' => 'TEM-01',
+                'description' => 'TEM',
+                'allowed_groups' => ['sem-users'],
+                'min_minutes' => 30,
+                'max_minutes' => 240,
+                'buffer_before_minutes' => 0,
+                'buffer_after_minutes' => 0,
+                'color' => '#2563eb',
+                'enabled' => true,
+            ],
+        ],
+    ]);
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'tem-01',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]));
+    $h->deleteInstrument($c, $pdo, user('manager', ['instrument-admin']), [
+        'instrumentCode' => 'sem-01',
+        'confirmName' => 'SEM-01',
+    ]);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM instruments WHERE code = 'tem-01'")->fetchColumn() === 1);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM events WHERE instrument_code = 'tem-01'")->fetchColumn() === 1);
+});
+
+test('cli revoke removes non final admin and blocks last admin', function () {
+    [$h, $c, $pdo] = fixture();
+    $admin = user('manager', ['instrument-admin']);
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'alpha']);
+    $h->addPluginAdmin($c, $pdo, $admin, ['username' => 'beta']);
+    $result = $h->revokePluginAdminCli($pdo, 'alpha');
+    assert_true($result['revoked'] === true);
+    assert_true($result['remainingAdmins'] === 1);
+    assert_error('LAST_ADMIN_CANNOT_BE_REVOKED', function () use ($h, $pdo) {
+        $h->revokePluginAdminCli($pdo, 'beta');
+    });
+    assert_error('ADMIN_NOT_FOUND', function () use ($h, $pdo) {
+        $h->revokePluginAdminCli($pdo, 'missing-user');
+    });
 });
 
 $failures = 0;
