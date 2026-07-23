@@ -16,6 +16,7 @@
         }
 
         document.body.classList.add('instrument-booking-page');
+        root.setAttribute('data-theme', 'midnight-lab');
 
         loadFullCalendar(root).then(function () {
             boot(root);
@@ -128,9 +129,20 @@
             selectable: true,
             editable: false,
             nowIndicator: true,
+            allDaySlot: false,
             height: 'auto',
-            slotMinTime: '06:00:00',
-            slotMaxTime: '22:00:00',
+            slotMinTime: '00:00:00',
+            slotMaxTime: '24:00:00',
+            slotLabelFormat: {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            },
+            eventTimeFormat: {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            },
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
