@@ -37,7 +37,6 @@ try {
 
     $pdo = $helper->connect($config, true);
     $helper->applySchema($pdo, dirname(__DIR__) . '/db/schema.sql');
-    $importedInstruments = $helper->migrateConfiguredInstruments($pdo, $config);
     @chmod($databasePath, 0660);
 
     echo "Instrument Booking database initialized.\n";
@@ -45,7 +44,6 @@ try {
     echo "Database: " . $databasePath . "\n";
     echo "Filesystem type: " . $fsType . "\n";
     echo "Schema version: " . $helper->schemaVersion($pdo) . "\n";
-    echo "Configured instruments imported: " . $importedInstruments . "\n";
     if ($fsType === 'unknown') {
         echo "Warning: filesystem type could not be detected automatically. Verify it is local disk, not NFS/SMB.\n";
     }

@@ -134,33 +134,47 @@ function fixture(array $overrides = []): array
     $config = array_replace_recursive([
         'database_path' => $db,
         'timezone' => 'America/Los_Angeles',
-        'manager_groups' => ['instrument-admin'],
         'cancelled_retention_days' => 180,
         'history_retention_days' => 730,
-        'instruments' => [
-            'sem-01' => [
-                'name' => 'SEM-01',
-                'description' => 'Scanning Electron Microscope',
-                'allowed_groups' => ['sem-users', 'instrument-admin'],
-                'min_minutes' => 30,
-                'max_minutes' => 240,
-                'buffer_before_minutes' => 0,
-                'buffer_after_minutes' => 0,
-                'color' => '#2563eb',
-                'enabled' => true,
-            ],
-        ],
     ], $overrides);
     $config = $helper->validateConfig($config);
     $pdo = $helper->connect($config, true);
     $helper->applySchema($pdo, dirname(__DIR__) . '/db/schema.sql');
-    $helper->migrateConfiguredInstruments($pdo, $config);
+    insert_test_instrument($pdo, 'sem-01', 'SEM-01', 'Scanning Electron Microscope');
     return [$helper, $config, $pdo, $db];
 }
 
-function user(string $name = 'alice', array $groups = ['sem-users'], bool $admin = false): array
+function insert_test_instrument(
+    PDO $pdo,
+    string $code,
+    string $name,
+    string $description = '',
+    int $maxBookingMinutes = 240,
+    int $weeklyQuotaMinutes = 0
+): void {
+    $stmt = $pdo->prepare(
+        'INSERT INTO instruments (
+            code, name, description, max_booking_minutes,
+            weekly_quota_minutes, created_at, updated_at
+         ) VALUES (
+            :code, :name, :description, :max_booking_minutes,
+            :weekly_quota_minutes, :created_at, :updated_at
+         )'
+    );
+    $stmt->execute([
+        ':code' => $code,
+        ':name' => $name,
+        ':description' => $description,
+        ':max_booking_minutes' => $maxBookingMinutes,
+        ':weekly_quota_minutes' => $weeklyQuotaMinutes,
+        ':created_at' => 1,
+        ':updated_at' => 1,
+    ]);
+}
+
+function user(string $name = 'alice'): array
 {
-    return ['user' => $name, 'groups' => $groups, 'isSuperuser' => $admin];
+    return ['user' => $name];
 }
 
 function grant_plugin_admin(PDO $pdo, string $username, int $now = 1): void
@@ -178,7 +192,7 @@ function grant_plugin_admin(PDO $pdo, string $username, int $now = 1): void
 
 function plugin_admin(string $name = 'manager'): array
 {
-    return user($name, []);
+    return user($name);
 }
 
 function booking(array $extra = []): array
@@ -361,15 +375,8 @@ test('legacy minute overlap at the start conflicts', function () {
     });
 });
 
-test('configured booking buffers no longer create conflicts', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'sem-01' => [
-                'buffer_before_minutes' => 15,
-                'buffer_after_minutes' => 15,
-            ],
-        ],
-    ]);
+test('bookings store exact ranges without buffers', function () {
+    [$h, $c, $pdo] = fixture();
     $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T10:00:00-08:00']));
     $stored = $pdo->query('SELECT start_ts, end_ts, blocked_start_ts, blocked_end_ts FROM events ORDER BY id LIMIT 1')->fetch();
     assert_true((int)$stored['blocked_start_ts'] === (int)$stored['start_ts'], 'Expected no stored buffer before booking');
@@ -425,7 +432,7 @@ test('duplicate requestId does not create a second event', function () {
 
 test('any authenticated user can book available instruments', function () {
     [$h, $c, $pdo] = fixture();
-    $event = $h->createEvent($c, $pdo, user('mallory', ['other-users']), booking())['event'];
+    $event = $h->createEvent($c, $pdo, user('mallory'), booking())['event'];
     assert_true($event['ownerUser'] === 'mallory');
 });
 
@@ -471,7 +478,7 @@ test('any authenticated user can read complete event details', function () {
         'note' => 'Shared details',
     ]));
 
-    $events = $h->listEvents($c, $pdo, user('mallory', ['other-users']), event_range())['events'];
+    $events = $h->listEvents($c, $pdo, user('mallory'), event_range())['events'];
     assert_true(count($events) === 1, 'Expected one visible event');
     assert_true($events[0]['ownerUser'] === 'alice');
     assert_true($events[0]['note'] === 'Shared details');
@@ -480,7 +487,7 @@ test('any authenticated user can read complete event details', function () {
 test('anonymous user cannot read events', function () {
     [$h, $c, $pdo] = fixture();
     assert_error('AUTH_REQUIRED', function () use ($h, $c, $pdo) {
-        $h->listEvents($c, $pdo, user('', []), event_range());
+        $h->listEvents($c, $pdo, user(''), event_range());
     });
 });
 
@@ -491,7 +498,7 @@ test('ordinary user cannot create block', function () {
     });
 });
 
-test('manager can create block', function () {
+test('admin can create block', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
     $event = $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
@@ -503,7 +510,7 @@ test('manager can create block', function () {
     assert_true($event['title'] === 'Outage');
 });
 
-test('manager can create outage longer than booking maximum across days', function () {
+test('admin can create outage longer than booking maximum across days', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
     $event = $h->createEvent($c, $pdo, plugin_admin('manager'), booking([
@@ -514,7 +521,7 @@ test('manager can create outage longer than booking maximum across days', functi
     assert_true($event['eventType'] === 'block');
 });
 
-test('manager can update outage beyond booking duration limits', function () {
+test('admin can update outage beyond booking duration limits', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
     $manager = plugin_admin('manager');
@@ -564,15 +571,8 @@ test('outage still conflicts with existing outage', function () {
     });
 });
 
-test('adjacent outages do not apply booking buffers', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'sem-01' => [
-                'buffer_before_minutes' => 10,
-                'buffer_after_minutes' => 10,
-            ],
-        ],
-    ]);
+test('adjacent outages do not conflict', function () {
+    [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
     $manager = plugin_admin('manager');
     $h->createEvent($c, $pdo, $manager, booking([
@@ -1066,21 +1066,8 @@ test('weekly quota of zero is unlimited', function () {
 });
 
 test('weekly quotas are tracked per instrument', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'tem-01' => [
-                'name' => 'TEM-01',
-                'description' => 'TEM',
-                'allowed_groups' => ['sem-users'],
-                'min_minutes' => 30,
-                'max_minutes' => 240,
-                'buffer_before_minutes' => 0,
-                'buffer_after_minutes' => 0,
-                'color' => '#2563eb',
-                'enabled' => true,
-            ],
-        ],
-    ]);
+    [$h, $c, $pdo] = fixture();
+    insert_test_instrument($pdo, 'tem-01', 'TEM-01', 'TEM');
     set_instrument_rules($pdo, 'sem-01', 60, 60);
     set_instrument_rules($pdo, 'tem-01', 60, 60);
     $h->createEvent($c, $pdo, user(), booking([
@@ -1296,36 +1283,22 @@ test('instruments API marks only plugin_admins as isAdmin', function () {
     [$h, $c, $pdo] = fixture();
     $guest = $h->listInstruments($c, $pdo, user('test'));
     assert_true($guest['isAdmin'] === false);
-    $superuser = $h->listInstruments($c, $pdo, user('wiki-admin', ['admin'], true));
-    assert_true($superuser['isAdmin'] === false);
+    $unlisted = $h->listInstruments($c, $pdo, user('wiki-admin'));
+    assert_true($unlisted['isAdmin'] === false);
     grant_plugin_admin($pdo, 'trsys-admin');
     $admin = $h->listInstruments($c, $pdo, plugin_admin('trsys-admin'));
     assert_true($admin['isAdmin'] === true);
 });
 
-test('dokuwiki superuser without plugin_admins is not trsys admin', function () {
+test('username absent from plugin_admins is not trsys admin', function () {
     [$h, $c, $pdo] = fixture();
-    $context = user('wiki-admin', ['admin'], true);
+    $context = user('wiki-admin');
     assert_true($h->isPluginAdmin($pdo, $context) === false);
-    assert_true($h->isManager($c, $context, $pdo) === false);
     assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo, $context) {
         $h->listAdminInstruments($c, $pdo, $context);
     });
     assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo, $context) {
         $h->createEvent($c, $pdo, $context, booking(['eventType' => 'block']));
-    });
-});
-
-test('manager_groups member without plugin_admins is not trsys admin', function () {
-    [$h, $c, $pdo] = fixture();
-    assert_true($c['manager_groups'] === ['instrument-admin']);
-    $context = user('legacy-manager', ['instrument-admin']);
-    assert_true($h->isPluginAdmin($pdo, $context) === false);
-    assert_true($h->isManager($c, $context, $pdo) === false);
-    $listed = $h->listInstruments($c, $pdo, $context);
-    assert_true($listed['isAdmin'] === false);
-    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo, $context) {
-        $h->listAdminInstruments($c, $pdo, $context);
     });
 });
 
@@ -1426,21 +1399,8 @@ test('deleting an instrument removes bookings outages segments and request recor
 });
 
 test('deleting one instrument leaves other instruments intact', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'tem-01' => [
-                'name' => 'TEM-01',
-                'description' => 'TEM',
-                'allowed_groups' => ['sem-users'],
-                'min_minutes' => 30,
-                'max_minutes' => 240,
-                'buffer_before_minutes' => 0,
-                'buffer_after_minutes' => 0,
-                'color' => '#2563eb',
-                'enabled' => true,
-            ],
-        ],
-    ]);
+    [$h, $c, $pdo] = fixture();
+    insert_test_instrument($pdo, 'tem-01', 'TEM-01', 'TEM');
     grant_plugin_admin($pdo, 'manager');
     $h->createEvent($c, $pdo, user(), booking([
         'instrumentCode' => 'tem-01',
@@ -1477,21 +1437,8 @@ test('delete preview reports associated event counts for admins only', function 
 });
 
 test('delete instrument returns deleted event count and clears only that tool', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'tem-01' => [
-                'name' => 'TEM-01',
-                'description' => 'TEM',
-                'allowed_groups' => ['sem-users'],
-                'min_minutes' => 30,
-                'max_minutes' => 240,
-                'buffer_before_minutes' => 0,
-                'buffer_after_minutes' => 0,
-                'color' => '#2563eb',
-                'enabled' => true,
-            ],
-        ],
-    ]);
+    [$h, $c, $pdo] = fixture();
+    insert_test_instrument($pdo, 'tem-01', 'TEM-01', 'TEM');
     grant_plugin_admin($pdo, 'manager');
     set_instrument_rules($pdo, 'sem-01', 240, 0);
     set_instrument_rules($pdo, 'tem-01', 240, 0);
@@ -1627,21 +1574,8 @@ test('weekly used time counts exact booking minutes', function () {
 });
 
 test('weekly used time ignores cancelled outages other users and instruments', function () {
-    [$h, $c, $pdo] = fixture([
-        'instruments' => [
-            'tem-01' => [
-                'name' => 'TEM-01',
-                'description' => 'TEM',
-                'allowed_groups' => ['sem-users'],
-                'min_minutes' => 30,
-                'max_minutes' => 240,
-                'buffer_before_minutes' => 0,
-                'buffer_after_minutes' => 0,
-                'color' => '#2563eb',
-                'enabled' => true,
-            ],
-        ],
-    ]);
+    [$h, $c, $pdo] = fixture();
+    insert_test_instrument($pdo, 'tem-01', 'TEM-01', 'TEM');
     grant_plugin_admin($pdo, 'manager');
     set_instrument_rules($pdo, 'sem-01', 360, 0);
     set_instrument_rules($pdo, 'tem-01', 360, 0);
