@@ -10,6 +10,53 @@ require_once dirname(__DIR__) . '/helper.php';
 
 $tests = [];
 
+class TestInstrumentBookingHelper extends helper_plugin_instrumentbooking
+{
+    public function createEvent(
+        array $config,
+        PDO $pdo,
+        array $context,
+        array $input,
+        ?callable $reloadConfig = null,
+        ?int $nowTimestamp = null
+    ): array {
+        return parent::createEvent(
+            $config,
+            $pdo,
+            $context,
+            $input,
+            $reloadConfig,
+            $nowTimestamp ?? $this->testNowFromInput($input)
+        );
+    }
+
+    public function updateEvent(
+        array $config,
+        PDO $pdo,
+        array $context,
+        array $input,
+        ?callable $reloadConfig = null,
+        ?int $nowTimestamp = null
+    ): array {
+        return parent::updateEvent(
+            $config,
+            $pdo,
+            $context,
+            $input,
+            $reloadConfig,
+            $nowTimestamp ?? $this->testNowFromInput($input)
+        );
+    }
+
+    private function testNowFromInput(array $input): int
+    {
+        $start = isset($input['start']) && is_string($input['start'])
+            ? (new DateTimeImmutable($input['start']))->getTimestamp()
+            : time();
+        return $start - 3600;
+    }
+}
+
 function test(string $name, callable $fn): void
 {
     global $tests;
@@ -18,7 +65,7 @@ function test(string $name, callable $fn): void
 
 function fixture(array $overrides = []): array
 {
-    $helper = new helper_plugin_instrumentbooking();
+    $helper = new TestInstrumentBookingHelper();
     $db = tempnam(sys_get_temp_dir(), 'ib-test-');
     if ($db === false) {
         throw new RuntimeException('Unable to create temporary database path.');
@@ -47,6 +94,7 @@ function fixture(array $overrides = []): array
     $config = $helper->validateConfig($config);
     $pdo = $helper->connect($config, true);
     $helper->applySchema($pdo, dirname(__DIR__) . '/db/schema.sql');
+    $helper->migrateConfiguredInstruments($pdo, $config);
     return [$helper, $config, $pdo, $db];
 }
 
@@ -86,15 +134,16 @@ function insert_raw_event(
 ): void {
     $startTimestamp = (new DateTimeImmutable($start))->getTimestamp();
     $endTimestamp = (new DateTimeImmutable($end))->getTimestamp();
+    $requestId = uuid_for_test();
     $stmt = $pdo->prepare(
         'INSERT INTO events (
             instrument_code, event_type, owner_user, title, note,
             start_ts, end_ts, blocked_start_ts, blocked_end_ts,
-            request_id, created_at, updated_at
+            request_id, booking_group_id, created_at, updated_at
         ) VALUES (
             :instrument_code, :event_type, :owner_user, :title, :note,
             :start_ts, :end_ts, :blocked_start_ts, :blocked_end_ts,
-            :request_id, :created_at, :updated_at
+            :request_id, :booking_group_id, :created_at, :updated_at
         )'
     );
     $stmt->execute([
@@ -111,7 +160,8 @@ function insert_raw_event(
         ':blocked_end_ts' => $blockedEnd === null
             ? $endTimestamp
             : (new DateTimeImmutable($blockedEnd))->getTimestamp(),
-        ':request_id' => uuid_for_test(),
+        ':request_id' => $requestId,
+        ':booking_group_id' => $requestId,
         ':created_at' => time(),
         ':updated_at' => time(),
     ]);
@@ -295,11 +345,10 @@ test('duplicate requestId does not create a second event', function () {
     assert_true($count === 1, 'Expected exactly one event');
 });
 
-test('unauthorized user cannot book', function () {
+test('any authenticated user can book available instruments', function () {
     [$h, $c, $pdo] = fixture();
-    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user('mallory', ['other-users']), booking());
-    });
+    $event = $h->createEvent($c, $pdo, user('mallory', ['other-users']), booking())['event'];
+    assert_true($event['ownerUser'] === 'mallory');
 });
 
 test('ordinary user cannot modify another user booking', function () {
@@ -338,13 +387,16 @@ test('authorized user sees complete details for another user booking', function 
     assert_true($events[0]['canCancel'] === false, 'Other users must not be able to cancel the booking');
 });
 
-test('user without instrument access cannot read events', function () {
+test('any authenticated user can read complete event details', function () {
     [$h, $c, $pdo] = fixture();
-    $h->createEvent($c, $pdo, user('alice'), booking());
+    $h->createEvent($c, $pdo, user('alice'), booking([
+        'note' => 'Shared details',
+    ]));
 
-    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
-        $h->listEvents($c, $pdo, user('mallory', ['other-users']), event_range());
-    });
+    $events = $h->listEvents($c, $pdo, user('mallory', ['other-users']), event_range())['events'];
+    assert_true(count($events) === 1, 'Expected one visible event');
+    assert_true($events[0]['ownerUser'] === 'alice');
+    assert_true($events[0]['note'] === 'Shared details');
 });
 
 test('anonymous user cannot read events', function () {
@@ -387,7 +439,7 @@ test('manager can update outage beyond booking duration limits', function () {
     $manager = user('manager', ['instrument-admin']);
     $event = $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
-    ]))['event'];
+    ]), null, la_timestamp('2030-01-01 08:00:00'))['event'];
     $updated = $h->updateEvent($c, $pdo, $manager, [
         'eventId' => $event['id'],
         'instrumentCode' => 'sem-01',
@@ -395,7 +447,7 @@ test('manager can update outage beyond booking duration limits', function () {
         'note' => '',
         'start' => '2030-01-02T09:00:00-08:00',
         'end' => '2030-01-05T17:00:00-08:00',
-    ])['event'];
+    ], null, la_timestamp('2030-01-01 08:00:00'))['event'];
     assert_true($updated['eventType'] === 'block');
     assert_true($updated['title'] === 'Outage');
 });
@@ -546,10 +598,13 @@ test('booking over max duration is rejected', function () {
     });
 });
 
-test('booking under min duration is rejected', function () {
-    [$h, $c, $pdo] = fixture(['instruments' => ['sem-01' => ['min_minutes' => 60]]]);
+test('booking under global 30 minute minimum is rejected', function () {
+    [$h, $c, $pdo] = fixture();
     assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T09:30:00-08:00']));
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T09:15:00-08:00',
+        ]));
     });
 });
 
@@ -709,7 +764,8 @@ test('editing uses the strict next booking slot', function () {
         'start' => '2030-01-01T03:00:00-08:00',
         'end' => '2030-01-01T03:30:00-08:00',
     ];
-    $h->updateEvent($c, $pdo, user(), $payload, null, la_timestamp('2030-01-01 02:59:00'));
+    $updated = $h->updateEvent($c, $pdo, user(), $payload, null, la_timestamp('2030-01-01 02:59:00'));
+    $payload['eventId'] = $updated['event']['id'];
     assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $payload) {
         $h->updateEvent($c, $pdo, user(), $payload, null, la_timestamp('2030-01-01 03:00:00'));
     });
@@ -739,7 +795,8 @@ test('DST transition with explicit offsets is accepted', function () {
 test('cleanup dry-run does not delete rows', function () {
     [$h, $c, $pdo] = fixture();
     $old = time() - 900 * 86400;
-    $stmt = $pdo->prepare('INSERT INTO events (instrument_code, event_type, owner_user, title, note, start_ts, end_ts, blocked_start_ts, blocked_end_ts, request_id, created_at, updated_at, cancelled_at, cancelled_by) VALUES (:instrument_code, :event_type, :owner_user, :title, :note, :start_ts, :end_ts, :blocked_start_ts, :blocked_end_ts, :request_id, :created_at, :updated_at, :cancelled_at, :cancelled_by)');
+    $requestId = uuid_for_test();
+    $stmt = $pdo->prepare('INSERT INTO events (instrument_code, event_type, owner_user, title, note, start_ts, end_ts, blocked_start_ts, blocked_end_ts, request_id, booking_group_id, created_at, updated_at, cancelled_at, cancelled_by) VALUES (:instrument_code, :event_type, :owner_user, :title, :note, :start_ts, :end_ts, :blocked_start_ts, :blocked_end_ts, :request_id, :booking_group_id, :created_at, :updated_at, :cancelled_at, :cancelled_by)');
     $stmt->execute([
         ':instrument_code' => 'sem-01',
         ':event_type' => 'booking',
@@ -750,7 +807,8 @@ test('cleanup dry-run does not delete rows', function () {
         ':end_ts' => $old,
         ':blocked_start_ts' => $old - 3600,
         ':blocked_end_ts' => $old,
-        ':request_id' => uuid_for_test(),
+        ':request_id' => $requestId,
+        ':booking_group_id' => $requestId,
         ':created_at' => $old,
         ':updated_at' => $old,
         ':cancelled_at' => $old,
@@ -775,6 +833,338 @@ test('second SQLite writer gets a handled busy condition', function () {
     } finally {
         $pdo1->rollBack();
     }
+});
+
+function set_instrument_rules(PDO $pdo, string $code, int $maxMinutes, int $weeklyMinutes): void
+{
+    $stmt = $pdo->prepare(
+        'UPDATE instruments
+         SET max_booking_minutes = :max_booking_minutes,
+             weekly_quota_minutes = :weekly_quota_minutes,
+             updated_at = :updated_at
+         WHERE code = :code'
+    );
+    $stmt->execute([
+        ':max_booking_minutes' => $maxMinutes,
+        ':weekly_quota_minutes' => $weeklyMinutes,
+        ':updated_at' => time(),
+        ':code' => $code,
+    ]);
+}
+
+test('regular user cannot access settings API', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+        $h->listAdminInstruments($c, $pdo, user());
+    });
+    assert_error('PERMISSION_DENIED', function () use ($h, $c, $pdo) {
+        $h->createInstrument($c, $pdo, user(), [
+            'name' => 'TEM-01',
+            'description' => '',
+            'maxBookingMinutes' => 120,
+            'weeklyQuotaMinutes' => 0,
+        ]);
+    });
+});
+
+test('admin can create and update instruments', function () {
+    [$h, $c, $pdo] = fixture();
+    $admin = user('manager', ['instrument-admin']);
+    $created = $h->createInstrument($c, $pdo, $admin, [
+        'name' => 'TEM-01',
+        'description' => 'Transmission Electron Microscope',
+        'maxBookingMinutes' => 180,
+        'weeklyQuotaMinutes' => 360,
+    ])['instrument'];
+    assert_true(str_starts_with($created['code'], 'tool-'));
+    assert_true($created['maxMinutes'] === 180);
+    assert_true($created['weeklyQuotaMinutes'] === 360);
+
+    $updated = $h->updateInstrument($c, $pdo, $admin, [
+        'instrumentCode' => $created['code'],
+        'name' => 'TEM-01 Updated',
+        'description' => 'Updated description',
+        'maxBookingMinutes' => 240,
+        'weeklyQuotaMinutes' => 480,
+    ])['instrument'];
+    assert_true($updated['name'] === 'TEM-01 Updated');
+    assert_true($updated['maxMinutes'] === 240);
+    assert_true($updated['weeklyQuotaMinutes'] === 480);
+});
+
+test('admin cannot modify another users booking', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent($c, $pdo, user('alice'), booking())['event'];
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
+        $h->updateEvent($c, $pdo, user('manager', ['instrument-admin']), [
+            'eventId' => $event['id'],
+            'instrumentCode' => 'sem-01',
+            'eventType' => 'booking',
+            'note' => '',
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T10:00:00-08:00',
+        ]);
+    });
+});
+
+test('admin cannot modify another admins outage', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent($c, $pdo, user('manager-a', ['instrument-admin']), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]))['event'];
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
+        $h->updateEvent($c, $pdo, user('manager-b', ['instrument-admin']), [
+            'eventId' => $event['id'],
+            'instrumentCode' => 'sem-01',
+            'eventType' => 'block',
+            'note' => '',
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => '2030-01-01T11:00:00-08:00',
+        ]);
+    });
+});
+
+test('admin bookings obey weekly quota', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 120, 120);
+    $admin = user('manager', ['instrument-admin']);
+    $h->createEvent($c, $pdo, $admin, booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T11:00:00-08:00',
+    ]));
+    assert_error('WEEKLY_LIMIT_EXCEEDED', function () use ($h, $c, $pdo, $admin) {
+        $h->createEvent($c, $pdo, $admin, booking([
+            'start' => '2030-01-01T12:00:00-08:00',
+            'end' => '2030-01-01T13:00:00-08:00',
+        ]));
+    });
+});
+
+test('weekly quota of zero is unlimited', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T13:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T14:00:00-08:00',
+        'end' => '2030-01-01T18:00:00-08:00',
+    ]));
+});
+
+test('weekly quotas are tracked per instrument', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'tem-01' => [
+                'name' => 'TEM-01',
+                'description' => 'TEM',
+                'allowed_groups' => ['sem-users'],
+                'min_minutes' => 30,
+                'max_minutes' => 240,
+                'buffer_before_minutes' => 0,
+                'buffer_after_minutes' => 0,
+                'color' => '#2563eb',
+                'enabled' => true,
+            ],
+        ],
+    ]);
+    set_instrument_rules($pdo, 'sem-01', 60, 60);
+    set_instrument_rules($pdo, 'tem-01', 60, 60);
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'sem-01',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'tem-01',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]));
+});
+
+test('cancelled bookings and outages do not consume weekly quota', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 60, 60);
+    $event = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]))['event'];
+    $h->cancelEvent($c, $pdo, user(), ['eventId' => $event['id']]);
+    $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T11:00:00-08:00',
+        'end' => '2030-01-01T13:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T14:00:00-08:00',
+        'end' => '2030-01-01T15:00:00-08:00',
+    ]));
+});
+
+test('updating a booking excludes its own weekly usage', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 60, 60);
+    $event = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]))['event'];
+    $updated = $h->updateEvent($c, $pdo, user(), [
+        'eventId' => $event['id'],
+        'instrumentCode' => 'sem-01',
+        'eventType' => 'booking',
+        'note' => '',
+        'start' => '2030-01-01T11:00:00-08:00',
+        'end' => '2030-01-01T12:00:00-08:00',
+    ], null, la_timestamp('2030-01-01 08:00:00'))['event'];
+    assert_true($updated['start'] === '2030-01-01T11:00:00-08:00');
+});
+
+test('rolling seven day horizon uses Los Angeles calendar time', function () {
+    [$h, $c, $pdo] = fixture();
+    $now = la_timestamp('2030-01-01 10:13:00');
+    $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-01-08T10:00:00-08:00',
+            'end' => '2030-01-08T10:30:00-08:00',
+        ]),
+        null,
+        $now
+    );
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $now) {
+        $h->createEvent(
+            $c,
+            $pdo,
+            user(),
+            booking([
+                'start' => '2030-01-08T10:30:00-08:00',
+                'end' => '2030-01-08T11:00:00-08:00',
+            ]),
+            null,
+            $now
+        );
+    });
+});
+
+test('DST week horizon uses calendar days not fixed seconds', function () {
+    [$h, $c, $pdo] = fixture();
+    $now = (new DateTimeImmutable('2030-03-07T10:00:00-08:00'))->getTimestamp();
+    $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-03-14T10:00:00-07:00',
+            'end' => '2030-03-14T10:30:00-07:00',
+        ]),
+        null,
+        $now
+    );
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo, $now) {
+        $h->createEvent(
+            $c,
+            $pdo,
+            user(),
+            booking([
+                'start' => '2030-03-14T10:30:00-07:00',
+                'end' => '2030-03-14T11:00:00-07:00',
+            ]),
+            null,
+            $now
+        );
+    });
+});
+
+test('cross week bookings split into two segments', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $event = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+    ]))['event'];
+    $rows = $pdo->query('SELECT start_ts, end_ts, booking_group_id, request_id FROM events ORDER BY start_ts')->fetchAll();
+    assert_true(count($rows) === 2, 'Expected two segments');
+    assert_true($rows[0]['booking_group_id'] === $rows[1]['booking_group_id']);
+    assert_true($rows[0]['request_id'] === $rows[1]['request_id']);
+    assert_true((int)$rows[0]['end_ts'] === (int)$rows[1]['start_ts']);
+    assert_true($event['bookingGroupId'] === $rows[0]['booking_group_id']);
+});
+
+test('cross week segments count against each week quota separately', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 120, 120);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+    ]));
+    assert_error('WEEKLY_LIMIT_EXCEEDED', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-05T21:00:00-08:00',
+            'end' => '2030-01-05T22:30:00-08:00',
+        ]));
+    });
+    assert_error('WEEKLY_LIMIT_EXCEEDED', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-06T02:00:00-08:00',
+            'end' => '2030-01-06T03:30:00-08:00',
+        ]));
+    });
+});
+
+test('cross week create rolls back when one segment conflicts', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $h->createEvent($c, $pdo, user('bob'), booking([
+        'start' => '2030-01-06T00:00:00-08:00',
+        'end' => '2030-01-06T00:30:00-08:00',
+    ]));
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-05T23:00:00-08:00',
+            'end' => '2030-01-06T01:00:00-08:00',
+        ]));
+    });
+    $count = (int)$pdo->query("SELECT COUNT(*) FROM events WHERE owner_user = 'alice'")->fetchColumn();
+    assert_true($count === 0, 'Expected complete rollback');
+});
+
+test('cancelling one segment cancels the whole booking group', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $event = $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+    ]))['event'];
+    $secondId = (int)$pdo->query('SELECT id FROM events ORDER BY start_ts DESC LIMIT 1')->fetchColumn();
+    $h->cancelEvent($c, $pdo, user(), ['eventId' => $secondId]);
+    $active = (int)$pdo->query('SELECT COUNT(*) FROM events WHERE cancelled_at IS NULL')->fetchColumn();
+    assert_true($active === 0, 'Expected all segments cancelled');
+    assert_true($event['bookingGroupId'] !== '');
+});
+
+test('idempotent retry does not duplicate cross week segments', function () {
+    [$h, $c, $pdo] = fixture();
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $payload = booking([
+        'requestId' => '22222222-2222-4222-8222-222222222222',
+        'start' => '2030-01-05T23:00:00-08:00',
+        'end' => '2030-01-06T01:00:00-08:00',
+    ]);
+    $h->createEvent($c, $pdo, user(), $payload);
+    $again = $h->createEvent($c, $pdo, user(), $payload);
+    assert_true($again['idempotent'] === true);
+    $count = (int)$pdo->query('SELECT COUNT(*) FROM events')->fetchColumn();
+    assert_true($count === 2, 'Expected two segments total after retry');
+});
+
+test('schema version is two after install', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_true($h->schemaVersion($pdo) === 2);
 });
 
 $failures = 0;
