@@ -64,8 +64,19 @@
             state.timezone = data.timezone;
             state.isManager = !!data.isManager;
             state.instruments = data.instruments || [];
+            root.querySelector('.ib-settings-button').hidden = !state.isManager;
+            if (data.migrationRequired) {
+                showStatus(root, data.migrationMessage || 'The booking database must be migrated.', true);
+                return;
+            }
             if (state.instruments.length === 0) {
-                showStatus(root, 'No instruments are available. Confirm that you are logged in and belong to the required DokuWiki group.', true);
+                showStatus(
+                    root,
+                    state.isManager
+                        ? 'No instruments are configured. Open Settings to create one.'
+                        : 'No instruments are available. Contact an administrator.',
+                    true
+                );
                 return;
             }
             state.selectedInstrument = state.instruments[0].code;
@@ -104,6 +115,13 @@
         wikiLink.href = wikiUrl(state.ajaxUrl);
         wikiLink.textContent = 'Return to Lab Wiki';
         appNav.appendChild(wikiLink);
+        var settingsButton = button('button', 'Settings');
+        settingsButton.className = 'ib-app-link ib-settings-button';
+        settingsButton.hidden = true;
+        settingsButton.addEventListener('click', function () {
+            openSettings(state);
+        });
+        appNav.appendChild(settingsButton);
         appBar.appendChild(appNav);
         shell.appendChild(appBar);
 
@@ -132,6 +150,7 @@
         shell.appendChild(calendar);
 
         shell.appendChild(buildDialog(state));
+        shell.appendChild(buildSettingsDialog(state));
         return shell;
     }
 
@@ -141,7 +160,7 @@
         state.instruments.forEach(function (instrument) {
             var option = document.createElement('option');
             option.value = instrument.code;
-            option.textContent = instrument.name + (instrument.enabled ? '' : ' (disabled)');
+            option.textContent = instrument.name;
             select.appendChild(option);
         });
         select.value = state.selectedInstrument;
@@ -438,6 +457,7 @@
         }
 
         container.title = [
+            eventData.eventType === 'block' ? 'Outage' : 'Booking',
             'User: ' + eventData.ownerUser,
             displayTime,
             eventData.note ? 'Note: ' + eventData.note : ''
@@ -536,6 +556,227 @@
         return overlay;
     }
 
+    function buildSettingsDialog(state) {
+        var overlay = el('div', 'ib-dialog-overlay ib-settings-overlay');
+        overlay.hidden = true;
+
+        var dialog = el('div', 'ib-dialog ib-settings-dialog');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        dialog.setAttribute('aria-labelledby', 'ib-settings-title');
+
+        var closeButton = button('button', '×');
+        closeButton.className += ' ib-dialog-close ib-danger';
+        closeButton.setAttribute('aria-label', 'Close settings');
+        closeButton.addEventListener('click', function () {
+            if (!state.saving) {
+                overlay.hidden = true;
+            }
+        });
+        dialog.appendChild(closeButton);
+
+        var heading = el('h3', 'ib-dialog-title');
+        heading.id = 'ib-settings-title';
+        heading.textContent = 'Instrument Settings';
+        dialog.appendChild(heading);
+
+        var introduction = el('p', 'ib-settings-intro');
+        introduction.textContent = 'Create instruments and configure booking duration and weekly limits.';
+        dialog.appendChild(introduction);
+
+        var message = el('p', 'ib-dialog-message ib-settings-message');
+        dialog.appendChild(message);
+
+        var actions = el('div', 'ib-settings-actions');
+        var addButton = button('button', 'Add instrument');
+        addButton.addEventListener('click', function () {
+            overlay.querySelector('.ib-settings-list').prepend(buildInstrumentSettingsForm(state, overlay, null));
+        });
+        actions.appendChild(addButton);
+        dialog.appendChild(actions);
+
+        dialog.appendChild(el('div', 'ib-settings-list'));
+        overlay.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !state.saving) {
+                overlay.hidden = true;
+            }
+        });
+        overlay.appendChild(dialog);
+        return overlay;
+    }
+
+    function openSettings(state) {
+        if (!state.isManager || state.saving) {
+            return;
+        }
+        var overlay = state.root.querySelector('.ib-settings-overlay');
+        overlay.hidden = false;
+        setSettingsMessage(overlay, 'Loading settings...', false);
+        api(state, 'GET', 'admin/instruments', {}).then(function (data) {
+            renderInstrumentSettings(state, overlay, data.instruments || []);
+            setSettingsMessage(overlay, '', false);
+        }).catch(function (err) {
+            setSettingsMessage(overlay, err.message || 'Unable to load instrument settings.', true);
+        });
+    }
+
+    function renderInstrumentSettings(state, overlay, instruments) {
+        var list = overlay.querySelector('.ib-settings-list');
+        list.textContent = '';
+        instruments.forEach(function (instrument) {
+            list.appendChild(buildInstrumentSettingsForm(state, overlay, instrument));
+        });
+        if (instruments.length === 0) {
+            var empty = el('p', 'ib-settings-empty');
+            empty.textContent = 'No instruments are configured.';
+            list.appendChild(empty);
+        }
+    }
+
+    function buildInstrumentSettingsForm(state, overlay, instrument) {
+        var form = el('form', 'ib-settings-card');
+        var isCreate = !instrument;
+        var cardTitle = el('h4', 'ib-settings-card-title');
+        cardTitle.textContent = isCreate ? 'New instrument' : instrument.name;
+        form.appendChild(cardTitle);
+        form.appendChild(settingsTextField('name', 'Name', instrument ? instrument.name : '', 120, true));
+        form.appendChild(settingsTextArea('description', 'Description', instrument ? instrument.description : '', 1000));
+        form.appendChild(settingsNumberField(
+            'maxBookingMinutes',
+            'Maximum duration per booking (minutes)',
+            instrument ? instrument.maxMinutes : 240,
+            30
+        ));
+        form.appendChild(settingsNumberField(
+            'weeklyQuotaMinutes',
+            'Weekly limit per user (minutes, 0 for unlimited)',
+            instrument ? instrument.weeklyQuotaMinutes : 0,
+            0
+        ));
+
+        var buttons = el('div', 'ib-dialog-buttons');
+        if (isCreate) {
+            var discard = button('button', 'Discard');
+            discard.className += ' ib-danger';
+            discard.addEventListener('click', function () {
+                form.remove();
+            });
+            buttons.appendChild(discard);
+        }
+        var save = button('submit', isCreate ? 'Create instrument' : 'Save changes');
+        buttons.appendChild(save);
+        form.appendChild(buttons);
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            if (state.saving) {
+                return;
+            }
+            var payload = {
+                name: getValue(form, 'name'),
+                description: getValue(form, 'description'),
+                maxBookingMinutes: Number(getValue(form, 'maxBookingMinutes')),
+                weeklyQuotaMinutes: Number(getValue(form, 'weeklyQuotaMinutes'))
+            };
+            if (!isCreate) {
+                payload.instrumentCode = instrument.code;
+            }
+            state.saving = true;
+            overlay.querySelectorAll('button, input, textarea').forEach(function (control) {
+                control.disabled = true;
+            });
+            setSettingsMessage(overlay, 'Saving settings...', false);
+            api(
+                state,
+                'POST',
+                isCreate ? 'admin/instrument/create' : 'admin/instrument/update',
+                payload
+            ).then(function () {
+                return refreshInstrumentData(state);
+            }).then(function () {
+                return api(state, 'GET', 'admin/instruments', {});
+            }).then(function (data) {
+                renderInstrumentSettings(state, overlay, data.instruments || []);
+                setSettingsMessage(overlay, 'Settings saved.', false);
+            }).catch(function (err) {
+                setSettingsMessage(overlay, err.message || 'Unable to save instrument settings.', true);
+            }).finally(function () {
+                state.saving = false;
+                overlay.querySelectorAll('button, input, textarea').forEach(function (control) {
+                    control.disabled = false;
+                });
+            });
+        });
+        return form;
+    }
+
+    function settingsTextField(name, label, value, maxLength, required) {
+        var wrap = el('label', 'ib-field');
+        wrap.appendChild(text(label));
+        var input = document.createElement('input');
+        input.className = 'ib-input';
+        input.name = name;
+        input.type = 'text';
+        input.value = value;
+        input.maxLength = maxLength;
+        input.required = required;
+        wrap.appendChild(input);
+        return wrap;
+    }
+
+    function settingsTextArea(name, label, value, maxLength) {
+        var wrap = el('label', 'ib-field');
+        wrap.appendChild(text(label));
+        var input = document.createElement('textarea');
+        input.className = 'ib-input';
+        input.name = name;
+        input.value = value;
+        input.maxLength = maxLength;
+        input.rows = 3;
+        wrap.appendChild(input);
+        return wrap;
+    }
+
+    function settingsNumberField(name, label, value, minimum) {
+        var wrap = el('label', 'ib-field');
+        wrap.appendChild(text(label));
+        var input = document.createElement('input');
+        input.className = 'ib-input';
+        input.name = name;
+        input.type = 'number';
+        input.value = String(value);
+        input.min = String(minimum);
+        input.max = '10080';
+        input.step = '30';
+        input.required = true;
+        wrap.appendChild(input);
+        return wrap;
+    }
+
+    function setSettingsMessage(overlay, message, isError) {
+        var node = overlay.querySelector('.ib-settings-message');
+        node.textContent = message;
+        node.classList.toggle('is-error', !!isError);
+    }
+
+    function refreshInstrumentData(state) {
+        return fetchInstruments(state).then(function (data) {
+            updateSecurityToken(state, data);
+            state.instruments = data.instruments || [];
+            if (!state.instruments.some(function (instrument) {
+                return instrument.code === state.selectedInstrument;
+            })) {
+                state.selectedInstrument = state.instruments.length ? state.instruments[0].code : null;
+            }
+            refreshInstrumentSelect(state.root, state);
+            if (!state.calendar && state.selectedInstrument) {
+                initCalendar(state.root, state);
+            } else if (state.calendar) {
+                state.calendar.refetchEvents();
+            }
+        });
+    }
+
     function openDialog(root, state, eventData) {
         var overlay = root.querySelector('.ib-dialog-overlay');
         overlay._eventData = eventData;
@@ -569,9 +810,15 @@
         overlay.querySelector('[type="submit"]').hidden = !canEdit;
         overlay.querySelector('.ib-dialog-buttons .ib-danger').hidden = !(eventData.canCancel && !isCreate);
         if (!isCreate && eventData.eventType === 'block') {
-            setDialogMessage(overlay, 'This is an equipment outage. Only an administrator can modify it.', false);
+            setDialogMessage(
+                overlay,
+                canEdit
+                    ? 'You can modify this outage because you created it.'
+                    : 'Only the administrator who created this outage can modify it.',
+                false
+            );
         } else if (!isCreate && !canEdit) {
-            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner or an administrator can modify this event.', false);
+            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner can modify this booking.', false);
         } else {
             setDialogMessage(overlay, '', false);
         }
@@ -767,11 +1014,36 @@
             );
             return false;
         }
+
+        var horizon = bookingHorizonTime(state.timezone);
+        if (startTime > horizon) {
+            setDialogMessage(overlay, 'The event must start within the next seven calendar days.', true);
+            return false;
+        }
         return true;
     }
 
     function nextBookableSlotTime() {
         return (Math.floor(Date.now() / 1800000) + 1) * 1800000;
+    }
+
+    function bookingHorizonTime(timezone) {
+        var parts = zonedParts(new Date(), timezone);
+        var targetUtcGuess = Date.UTC(
+            Number(parts.year),
+            Number(parts.month) - 1,
+            Number(parts.day) + 7,
+            Number(parts.hour),
+            Number(parts.minute),
+            Number(parts.second)
+        );
+        var offset = offsetMinutes(timezone, new Date(targetUtcGuess));
+        var utc = targetUtcGuess - offset * 60000;
+        var refinedOffset = offsetMinutes(timezone, new Date(utc));
+        if (refinedOffset !== offset) {
+            utc = targetUtcGuess - refinedOffset * 60000;
+        }
+        return utc;
     }
 
     function formatTimeInTimezone(timestamp, timezone) {

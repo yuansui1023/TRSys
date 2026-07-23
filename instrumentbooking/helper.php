@@ -40,6 +40,7 @@ class InstrumentBookingException extends RuntimeException
 class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 {
     public const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+    public const SCHEMA_VERSION = 2;
 
     public function defaultConfigPath(): string
     {
@@ -158,26 +159,12 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return $pdo;
     }
 
-    public function listInstruments(array $config, array $context): array
+    public function listInstruments(array $config, PDO $pdo, array $context): array
     {
-        $result = [];
-        foreach ($config['instruments'] as $code => $instrument) {
-            $isManager = $this->isManager($config, $context);
-            if (!$isManager && (!$instrument['enabled'] || !$this->userHasInstrumentAccess($instrument, $context))) {
-                continue;
-            }
-            $result[] = [
-                'code' => $code,
-                'name' => (string)$instrument['name'],
-                'description' => (string)$instrument['description'],
-                'minMinutes' => (int)$instrument['min_minutes'],
-                'maxMinutes' => (int)$instrument['max_minutes'],
-                'bufferBeforeMinutes' => (int)$instrument['buffer_before_minutes'],
-                'bufferAfterMinutes' => (int)$instrument['buffer_after_minutes'],
-                'color' => (string)$instrument['color'],
-                'enabled' => (bool)$instrument['enabled'],
-            ];
-        }
+        $this->requireAuthenticated($context);
+        $this->assertSchemaCurrent($pdo);
+        $rows = $pdo->query('SELECT * FROM instruments ORDER BY name COLLATE NOCASE, code')->fetchAll();
+        $result = array_map(fn(array $row): array => $this->instrumentForResponse($row), $rows);
 
         return [
             'timezone' => $config['timezone'],
@@ -186,14 +173,106 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         ];
     }
 
+    public function listAdminInstruments(array $config, PDO $pdo, array $context): array
+    {
+        $this->requireAdmin($config, $context);
+        return ['instruments' => $this->listInstruments($config, $pdo, $context)['instruments']];
+    }
+
+    public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
+    {
+        $this->requireAdmin($config, $context);
+        $this->assertSchemaCurrent($pdo);
+        $values = $this->validatedInstrumentInput($input);
+        $now = $nowTimestamp ?? time();
+        $code = 'tool-' . $this->newUuid();
+
+        $this->beginImmediate($pdo);
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO instruments (
+                    code, name, description, max_booking_minutes,
+                    weekly_quota_minutes, created_at, updated_at
+                 ) VALUES (
+                    :code, :name, :description, :max_booking_minutes,
+                    :weekly_quota_minutes, :created_at, :updated_at
+                 )'
+            );
+            $stmt->execute([
+                ':code' => $code,
+                ':name' => $values['name'],
+                ':description' => $values['description'],
+                ':max_booking_minutes' => $values['max_booking_minutes'],
+                ':weekly_quota_minutes' => $values['weekly_quota_minutes'],
+                ':created_at' => $now,
+                ':updated_at' => $now,
+            ]);
+            $instrument = $this->findInstrument($pdo, $code);
+            $pdo->commit();
+            return ['instrument' => $this->instrumentForResponse($instrument)];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($this->isUniqueConstraintException($e)) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'An instrument with this name already exists.', 409);
+            }
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw $e;
+        }
+    }
+
+    public function updateInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
+    {
+        $this->requireAdmin($config, $context);
+        $this->assertSchemaCurrent($pdo);
+        $code = $this->requireInstrumentCode($input);
+        $values = $this->validatedInstrumentInput($input);
+        $now = $nowTimestamp ?? time();
+
+        $this->beginImmediate($pdo);
+        try {
+            if ($this->findInstrument($pdo, $code) === null) {
+                throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', 'The instrument was not found.', 404);
+            }
+            $stmt = $pdo->prepare(
+                'UPDATE instruments
+                 SET name = :name,
+                     description = :description,
+                     max_booking_minutes = :max_booking_minutes,
+                     weekly_quota_minutes = :weekly_quota_minutes,
+                     updated_at = :updated_at
+                 WHERE code = :code'
+            );
+            $stmt->execute([
+                ':name' => $values['name'],
+                ':description' => $values['description'],
+                ':max_booking_minutes' => $values['max_booking_minutes'],
+                ':weekly_quota_minutes' => $values['weekly_quota_minutes'],
+                ':updated_at' => $now,
+                ':code' => $code,
+            ]);
+            $instrument = $this->findInstrument($pdo, $code);
+            $pdo->commit();
+            return ['instrument' => $this->instrumentForResponse($instrument)];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($this->isUniqueConstraintException($e)) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'An instrument with this name already exists.', 409);
+            }
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw $e;
+        }
+    }
+
     public function listEvents(array $config, PDO $pdo, array $context, array $input): array
     {
         $this->requireAuthenticated($context);
+        $this->assertSchemaCurrent($pdo);
         $instrumentCode = $this->requireInstrumentCode($input);
-        $instrument = $this->requireInstrument($config, $instrumentCode, false);
-        if (!$this->canViewInstrument($config, $instrument, $context)) {
-            throw new InstrumentBookingException('PERMISSION_DENIED', 'You do not have permission to view bookings for this instrument.', 403);
-        }
+        $this->requireInstrument($pdo, $instrumentCode);
 
         $start = $this->parseIsoToTimestamp($this->requireString($input, 'start', 64));
         $end = $this->parseIsoToTimestamp($this->requireString($input, 'end', 64));
@@ -216,9 +295,23 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         ]);
 
         $events = [];
+        $groups = [];
         foreach ($stmt->fetchAll() as $row) {
-            $events[] = $this->eventForResponse($config, $row, $context);
+            $groupId = (string)$row['booking_group_id'];
+            if (!isset($groups[$groupId])) {
+                $groups[$groupId] = [];
+            }
+            $groups[$groupId][] = $row;
         }
+        foreach ($groups as $segments) {
+            $fullSegments = $this->findByBookingGroupId($pdo, (string)$segments[0]['booking_group_id']);
+            $events[] = $this->eventForResponse(
+                $config,
+                $this->logicalEventFromSegments($fullSegments),
+                $context
+            );
+        }
+        usort($events, static fn(array $a, array $b): int => strcmp($a['start'], $b['start']));
         return ['events' => $events];
     }
 
@@ -232,6 +325,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     ): array
     {
         $this->requireAuthenticated($context);
+        $this->assertSchemaCurrent($pdo);
         $this->beginImmediate($pdo);
         try {
             if ($reloadConfig !== null) {
@@ -244,60 +338,67 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
 
             $existing = $this->findByRequestId($pdo, $requestId);
-            if ($existing !== null) {
+            if ($existing !== []) {
                 $pdo->commit();
                 return [
-                    'event' => $this->eventForResponse($config, $existing, $context),
+                    'event' => $this->eventForResponse(
+                        $config,
+                        $this->logicalEventFromSegments($existing),
+                        $context
+                    ),
                     'idempotent' => true,
                 ];
             }
 
             $instrumentCode = $this->requireInstrumentCode($input);
-            $instrument = $this->requireInstrument($config, $instrumentCode, true);
+            $instrument = $this->requireInstrument($pdo, $instrumentCode);
             $eventType = $this->optionalEventType($input);
-            $this->assertCreateAllowed($config, $instrument, $context, $eventType);
+            $this->assertCreateAllowed($config, $context, $eventType);
 
             $now = $nowTimestamp ?? time();
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument(
+            [$start, $end] = $this->validatedTimesForInstrument(
                 $config,
                 $instrument,
                 $input,
                 $eventType,
                 $now
             );
-            $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, null);
             $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
-
-            $stmt = $pdo->prepare(
-                'INSERT INTO events (
-                    instrument_code, event_type, owner_user, title, note,
-                    start_ts, end_ts, blocked_start_ts, blocked_end_ts,
-                    request_id, created_at, updated_at
-                ) VALUES (
-                    :instrument_code, :event_type, :owner_user, :title, :note,
-                    :start_ts, :end_ts, :blocked_start_ts, :blocked_end_ts,
-                    :request_id, :created_at, :updated_at
-                )'
-            );
-            $stmt->execute([
-                ':instrument_code' => $instrumentCode,
-                ':event_type' => $eventType,
-                ':owner_user' => $context['user'],
-                ':title' => $internalTitle,
-                ':note' => $this->cleanText(
-                    $this->optionalString($input, 'note', 1000),
-                    1000,
-                    true
-                ),
-                ':start_ts' => $start,
-                ':end_ts' => $end,
-                ':blocked_start_ts' => $blockedStart,
-                ':blocked_end_ts' => $blockedEnd,
-                ':request_id' => $requestId,
-                ':created_at' => $now,
-                ':updated_at' => $now,
-            ]);
-            $event = $this->findById($pdo, (int)$pdo->lastInsertId());
+            $note = $this->cleanText($this->optionalString($input, 'note', 1000), 1000, true);
+            $bookingGroupId = $requestId;
+            $segments = $eventType === 'booking'
+                ? $this->splitBookingAtWeekBoundary($start, $end, $config['timezone'])
+                : [[$start, $end]];
+            foreach ($segments as [$segmentStart, $segmentEnd]) {
+                $this->assertNoConflict($pdo, $instrumentCode, $segmentStart, $segmentEnd, null);
+            }
+            if ($eventType === 'booking') {
+                $this->assertWeeklyQuota(
+                    $pdo,
+                    $instrument,
+                    (string)$context['user'],
+                    $segments,
+                    $config['timezone'],
+                    null
+                );
+            }
+            foreach ($segments as [$segmentStart, $segmentEnd]) {
+                $this->insertEventSegment(
+                    $pdo,
+                    $instrumentCode,
+                    $eventType,
+                    (string)$context['user'],
+                    $internalTitle,
+                    $note,
+                    $segmentStart,
+                    $segmentEnd,
+                    $requestId,
+                    $bookingGroupId,
+                    $now,
+                    $now
+                );
+            }
+            $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $bookingGroupId));
             $pdo->commit();
             return ['event' => $this->eventForResponse($config, $event, $context), 'idempotent' => false];
         } catch (Throwable $e) {
@@ -319,6 +420,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     ): array
     {
         $this->requireAuthenticated($context);
+        $this->assertSchemaCurrent($pdo);
         $this->beginImmediate($pdo);
         try {
             if ($reloadConfig !== null) {
@@ -326,17 +428,19 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
 
             $eventId = $this->requirePositiveInt($input, 'eventId');
-            $existing = $this->findById($pdo, $eventId);
-            if ($existing === null || $existing['cancelled_at'] !== null) {
+            $selectedSegment = $this->findById($pdo, $eventId);
+            if ($selectedSegment === null || $selectedSegment['cancelled_at'] !== null) {
                 throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
             }
+            $existingSegments = $this->findByBookingGroupId($pdo, (string)$selectedSegment['booking_group_id']);
+            $existing = $this->logicalEventFromSegments($existingSegments);
             $now = $nowTimestamp ?? time();
             if (!$this->canEditEvent($config, $existing, $context, $now)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be edited.', 403);
             }
 
             $instrumentCode = $this->requireInstrumentCode($input + ['instrumentCode' => $existing['instrument_code']]);
-            $instrument = $this->requireInstrument($config, $instrumentCode, true);
+            $instrument = $this->requireInstrument($pdo, $instrumentCode);
             if (array_key_exists('eventType', $input) && $this->optionalEventType($input) !== $existing['event_type']) {
                 throw new InstrumentBookingException('INVALID_INPUT', 'The event type cannot be changed after creation.', 400);
             }
@@ -344,51 +448,52 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             if ($eventType === 'block' && !$this->isManager($config, $context)) {
                 throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
             }
-            if ($eventType === 'booking' && !$this->isManager($config, $context)) {
-                $this->assertInstrumentBookingAccess($instrument, $context);
-            }
 
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument(
+            [$start, $end] = $this->validatedTimesForInstrument(
                 $config,
                 $instrument,
                 $input,
                 $eventType,
                 $now
             );
-            $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, $eventId);
             $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
-
-            $stmt = $pdo->prepare(
-                'UPDATE events
-                 SET instrument_code = :instrument_code,
-                     event_type = :event_type,
-                     title = :title,
-                     note = :note,
-                     start_ts = :start_ts,
-                     end_ts = :end_ts,
-                     blocked_start_ts = :blocked_start_ts,
-                     blocked_end_ts = :blocked_end_ts,
-                     updated_at = :updated_at
-                 WHERE id = :id'
-            );
-            $stmt->execute([
-                ':instrument_code' => $instrumentCode,
-                ':event_type' => $eventType,
-                ':title' => $internalTitle,
-                ':note' => $this->cleanText(
-                    $this->optionalString($input, 'note', 1000),
-                    1000,
-                    true
-                ),
-                ':start_ts' => $start,
-                ':end_ts' => $end,
-                ':blocked_start_ts' => $blockedStart,
-                ':blocked_end_ts' => $blockedEnd,
-                ':updated_at' => $now,
-                ':id' => $eventId,
-            ]);
-
-            $event = $this->findById($pdo, $eventId);
+            $note = $this->cleanText($this->optionalString($input, 'note', 1000), 1000, true);
+            $segments = $eventType === 'booking'
+                ? $this->splitBookingAtWeekBoundary($start, $end, $config['timezone'])
+                : [[$start, $end]];
+            $groupId = (string)$existing['booking_group_id'];
+            foreach ($segments as [$segmentStart, $segmentEnd]) {
+                $this->assertNoConflict($pdo, $instrumentCode, $segmentStart, $segmentEnd, $groupId);
+            }
+            if ($eventType === 'booking') {
+                $this->assertWeeklyQuota(
+                    $pdo,
+                    $instrument,
+                    (string)$existing['owner_user'],
+                    $segments,
+                    $config['timezone'],
+                    $groupId
+                );
+            }
+            $delete = $pdo->prepare('DELETE FROM events WHERE booking_group_id = :booking_group_id');
+            $delete->execute([':booking_group_id' => $groupId]);
+            foreach ($segments as [$segmentStart, $segmentEnd]) {
+                $this->insertEventSegment(
+                    $pdo,
+                    $instrumentCode,
+                    $eventType,
+                    (string)$existing['owner_user'],
+                    $internalTitle,
+                    $note,
+                    $segmentStart,
+                    $segmentEnd,
+                    (string)$existing['request_id'],
+                    $groupId,
+                    (int)$existing['created_at'],
+                    $now
+                );
+            }
+            $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
             $pdo->commit();
             return ['event' => $this->eventForResponse($config, $event, $context)];
         } catch (Throwable $e) {
@@ -403,6 +508,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     public function cancelEvent(array $config, PDO $pdo, array $context, array $input, ?callable $reloadConfig = null): array
     {
         $this->requireAuthenticated($context);
+        $this->assertSchemaCurrent($pdo);
         $this->beginImmediate($pdo);
         try {
             if ($reloadConfig !== null) {
@@ -410,10 +516,12 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
 
             $eventId = $this->requirePositiveInt($input, 'eventId');
-            $event = $this->findById($pdo, $eventId);
-            if ($event === null || $event['cancelled_at'] !== null) {
+            $selectedSegment = $this->findById($pdo, $eventId);
+            if ($selectedSegment === null || $selectedSegment['cancelled_at'] !== null) {
                 throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
             }
+            $groupId = (string)$selectedSegment['booking_group_id'];
+            $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
             if (!$this->canCancelEvent($config, $event, $context)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be cancelled.', 403);
             }
@@ -423,14 +531,15 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                  SET cancelled_at = :cancelled_at,
                      cancelled_by = :cancelled_by,
                      updated_at = :updated_at
-                 WHERE id = :id'
+                 WHERE booking_group_id = :booking_group_id
+                   AND cancelled_at IS NULL'
             );
             $now = time();
             $stmt->execute([
                 ':cancelled_at' => $now,
                 ':cancelled_by' => $context['user'],
                 ':updated_at' => $now,
-                ':id' => $eventId,
+                ':booking_group_id' => $groupId,
             ]);
             $pdo->commit();
             return ['cancelled' => true, 'eventId' => $eventId];
@@ -536,7 +645,148 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         if ($sql === false || trim($sql) === '') {
             throw new InstrumentBookingException('INTERNAL_ERROR', 'The database schema file cannot be read.', 500);
         }
-        $pdo->exec($sql);
+        $version = $this->schemaVersion($pdo);
+        if ($version === 0) {
+            $pdo->exec($sql);
+            return;
+        }
+        if ($version === 1) {
+            $this->migrateSchemaV1ToV2($pdo);
+            return;
+        }
+        if ($version !== self::SCHEMA_VERSION) {
+            throw new InstrumentBookingException('INTERNAL_ERROR', 'The booking database schema version is not supported.', 500);
+        }
+    }
+
+    public function assertSchemaCurrent(PDO $pdo): void
+    {
+        if ($this->schemaVersion($pdo) !== self::SCHEMA_VERSION) {
+            throw new InstrumentBookingException(
+                'SCHEMA_MIGRATION_REQUIRED',
+                'The booking database must be migrated. Run: php lib/plugins/instrumentbooking/bin/install.php',
+                500
+            );
+        }
+    }
+
+    public function migrateConfiguredInstruments(PDO $pdo, array $config, ?int $nowTimestamp = null): int
+    {
+        $this->assertSchemaCurrent($pdo);
+        $now = $nowTimestamp ?? time();
+        $stmt = $pdo->prepare(
+            'INSERT INTO instruments (
+                code, name, description, max_booking_minutes,
+                weekly_quota_minutes, created_at, updated_at
+             ) VALUES (
+                :code, :name, :description, :max_booking_minutes,
+                0, :created_at, :updated_at
+             )
+             ON CONFLICT(code) DO NOTHING'
+        );
+        $inserted = 0;
+        foreach ($config['instruments'] as $code => $instrument) {
+            $stmt->execute([
+                ':code' => $code,
+                ':name' => $this->cleanText((string)$instrument['name'], 120),
+                ':description' => $this->cleanText((string)$instrument['description'], 1000, true),
+                ':max_booking_minutes' => $this->normalizedLegacyMaximum((int)$instrument['max_minutes']),
+                ':created_at' => $now,
+                ':updated_at' => $now,
+            ]);
+            $inserted += $stmt->rowCount();
+        }
+        return $inserted;
+    }
+
+    private function migrateSchemaV1ToV2(PDO $pdo): void
+    {
+        $this->beginImmediate($pdo);
+        try {
+            $pdo->exec(
+                'CREATE TABLE instruments (
+                    code TEXT PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    description TEXT NOT NULL DEFAULT \'\',
+                    max_booking_minutes INTEGER NOT NULL,
+                    weekly_quota_minutes INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    CHECK (length(name) BETWEEN 1 AND 120),
+                    CHECK (length(description) <= 1000),
+                    CHECK (max_booking_minutes BETWEEN 30 AND 10080),
+                    CHECK (max_booking_minutes % 30 = 0),
+                    CHECK (
+                        weekly_quota_minutes = 0
+                        OR (
+                            weekly_quota_minutes BETWEEN 30 AND 10080
+                            AND weekly_quota_minutes % 30 = 0
+                            AND weekly_quota_minutes >= max_booking_minutes
+                        )
+                    )
+                )'
+            );
+            $pdo->exec(
+                'CREATE TABLE events_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    instrument_code TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK (event_type IN (\'booking\', \'block\')),
+                    owner_user TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    note TEXT NOT NULL DEFAULT \'\',
+                    start_ts INTEGER NOT NULL,
+                    end_ts INTEGER NOT NULL,
+                    blocked_start_ts INTEGER NOT NULL,
+                    blocked_end_ts INTEGER NOT NULL,
+                    request_id TEXT NOT NULL,
+                    booking_group_id TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    cancelled_at INTEGER,
+                    cancelled_by TEXT,
+                    CHECK (start_ts < end_ts),
+                    CHECK (blocked_start_ts <= start_ts),
+                    CHECK (blocked_end_ts >= end_ts)
+                )'
+            );
+            $pdo->exec(
+                'INSERT INTO events_v2 (
+                    id, instrument_code, event_type, owner_user, title, note,
+                    start_ts, end_ts, blocked_start_ts, blocked_end_ts,
+                    request_id, booking_group_id, created_at, updated_at,
+                    cancelled_at, cancelled_by
+                 )
+                 SELECT
+                    id, instrument_code, event_type, owner_user, title, note,
+                    start_ts, end_ts, blocked_start_ts, blocked_end_ts,
+                    request_id, request_id, created_at, updated_at,
+                    cancelled_at, cancelled_by
+                 FROM events'
+            );
+            $pdo->exec('DROP TABLE events');
+            $pdo->exec('ALTER TABLE events_v2 RENAME TO events');
+            $this->createEventIndexes($pdo);
+            $pdo->exec('PRAGMA user_version = 2');
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            throw $e;
+        }
+    }
+
+    private function createEventIndexes(PDO $pdo): void
+    {
+        $pdo->exec('CREATE INDEX IF NOT EXISTS events_conflict_idx ON events (instrument_code, blocked_start_ts, blocked_end_ts)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS events_owner_idx ON events (owner_user, start_ts)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS events_range_idx ON events (start_ts, end_ts)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS events_request_idx ON events (request_id)');
+        $pdo->exec('CREATE INDEX IF NOT EXISTS events_group_idx ON events (booking_group_id)');
+    }
+
+    private function normalizedLegacyMaximum(int $minutes): int
+    {
+        $minutes = max(30, min(10080, $minutes));
+        return max(30, intdiv($minutes, 30) * 30);
     }
 
     public function requireAuthenticated(array $context): void
@@ -557,37 +807,22 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
     public function userHasInstrumentAccess(array $instrument, array $context): bool
     {
-        $groups = $context['groups'] ?? [];
-        return count(array_intersect($groups, $instrument['allowed_groups'])) > 0;
+        return !empty($context['user']);
     }
 
-    private function assertCreateAllowed(array $config, array $instrument, array $context, string $eventType): void
+    public function requireAdmin(array $config, array $context): void
     {
-        if ($eventType === 'block') {
-            if (!$this->isManager($config, $context)) {
-                throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
-            }
-            return;
-        }
-        if ($this->isManager($config, $context)) {
-            return;
-        }
-        $this->assertInstrumentBookingAccess($instrument, $context);
-    }
-
-    private function assertInstrumentBookingAccess(array $instrument, array $context): void
-    {
-        if (!$this->userHasInstrumentAccess($instrument, $context)) {
-            throw new InstrumentBookingException('PERMISSION_DENIED', 'You do not have permission to book this instrument.', 403);
+        $this->requireAuthenticated($context);
+        if (!$this->isManager($config, $context)) {
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'Administrator access is required.', 403);
         }
     }
 
-    private function canViewInstrument(array $config, array $instrument, array $context): bool
+    private function assertCreateAllowed(array $config, array $context, string $eventType): void
     {
-        if ($this->isManager($config, $context)) {
-            return true;
+        if ($eventType === 'block' && !$this->isManager($config, $context)) {
+            throw new InstrumentBookingException('PERMISSION_DENIED', 'Only administrators can create outages.', 403);
         }
-        return (bool)$instrument['enabled'] && $this->userHasInstrumentAccess($instrument, $context);
     }
 
     private function canEditEvent(array $config, array $event, array $context, ?int $nowTimestamp = null): bool
@@ -595,30 +830,27 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         if ((int)$event['start_ts'] < $this->nextBookableSlotTimestamp($config['timezone'], $nowTimestamp)) {
             return false;
         }
-        if ($this->isManager($config, $context)) {
-            return true;
-        }
-        return $event['event_type'] === 'booking' && $event['owner_user'] === $context['user'];
+        return $event['owner_user'] === $context['user']
+            && ($event['event_type'] === 'booking' || $this->isManager($config, $context));
     }
 
     private function canCancelEvent(array $config, array $event, array $context): bool
     {
         $now = time();
-        if ($this->isManager($config, $context)) {
-            if ((int)$event['start_ts'] > $now) {
-                return true;
-            }
-            return $event['event_type'] === 'block' && (int)$event['start_ts'] <= $now && (int)$event['end_ts'] > $now;
+        if ($event['owner_user'] !== $context['user']) {
+            return false;
         }
-        return $event['event_type'] === 'booking'
-            && $event['owner_user'] === $context['user']
-            && (int)$event['start_ts'] > $now;
+        if ($event['event_type'] === 'block') {
+            return $this->isManager($config, $context) && (int)$event['end_ts'] > $now;
+        }
+        return (int)$event['start_ts'] > $now;
     }
 
     private function eventForResponse(array $config, array $event, array $context): array
     {
         return [
             'id' => (int)$event['id'],
+            'bookingGroupId' => $event['booking_group_id'],
             'instrumentCode' => $event['instrument_code'],
             'start' => $this->formatIso((int)$event['start_ts'], $config['timezone']),
             'end' => $this->formatIso((int)$event['end_ts'], $config['timezone']),
@@ -676,13 +908,25 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             );
         }
 
+        $bookingHorizon = (new DateTimeImmutable('@' . $nowTimestamp))
+            ->setTimezone(new DateTimeZone($config['timezone']))
+            ->modify('+7 days')
+            ->getTimestamp();
+        if ($start > $bookingHorizon) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'The event must start within the next seven calendar days.',
+                400
+            );
+        }
+
         if ($eventType === 'block') {
-            return [$start, $end, $start, $end];
+            return [$start, $end];
         }
 
         $durationSeconds = $end - $start;
-        $minSeconds = (int)$instrument['min_minutes'] * 60;
-        $maxSeconds = (int)$instrument['max_minutes'] * 60;
+        $minSeconds = 30 * 60;
+        $maxSeconds = (int)$instrument['max_booking_minutes'] * 60;
         if ($durationSeconds < $minSeconds) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The booking is shorter than the minimum duration for this instrument.', 400);
         }
@@ -690,12 +934,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             throw new InstrumentBookingException('INVALID_INPUT', 'The booking exceeds the maximum duration for this instrument.', 400);
         }
 
-        return [
-            $start,
-            $end,
-            $start,
-            $end,
-        ];
+        return [$start, $end];
     }
 
     private function isThirtyMinuteTimestamp(string $value): bool
@@ -730,7 +969,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             ->format(DateTimeInterface::ATOM);
     }
 
-    private function assertNoConflict(PDO $pdo, string $instrumentCode, int $newStart, int $newEnd, ?int $excludeId): void
+    private function assertNoConflict(PDO $pdo, string $instrumentCode, int $newStart, int $newEnd, ?string $excludeGroupId): void
     {
         $sql = 'SELECT id
                 FROM events
@@ -743,9 +982,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             ':new_start' => $newStart,
             ':new_end' => $newEnd,
         ];
-        if ($excludeId !== null) {
-            $sql .= ' AND id <> :current_event_id';
-            $params[':current_event_id'] = $excludeId;
+        if ($excludeGroupId !== null) {
+            $sql .= ' AND booking_group_id <> :booking_group_id';
+            $params[':booking_group_id'] = $excludeGroupId;
         }
         $sql .= ' LIMIT 1';
 
@@ -754,6 +993,134 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         if ($stmt->fetch() !== false) {
             throw new InstrumentBookingException('BOOKING_CONFLICT', 'This time slot is already reserved. Please choose another time.', 409);
         }
+    }
+
+    private function splitBookingAtWeekBoundary(int $start, int $end, string $timezone): array
+    {
+        [$weekStart, $weekEnd] = $this->weekBoundsForTimestamp($start, $timezone);
+        if ($end <= $weekEnd) {
+            return [[$start, $end]];
+        }
+        return [[$start, $weekEnd], [$weekEnd, $end]];
+    }
+
+    private function weekBoundsForTimestamp(int $timestamp, string $timezone): array
+    {
+        $date = (new DateTimeImmutable('@' . $timestamp))->setTimezone(new DateTimeZone($timezone));
+        $daysSinceSunday = (int)$date->format('w');
+        $weekStart = $date->setTime(0, 0, 0)->modify('-' . $daysSinceSunday . ' days');
+        return [$weekStart->getTimestamp(), $weekStart->modify('+7 days')->getTimestamp()];
+    }
+
+    private function assertWeeklyQuota(
+        PDO $pdo,
+        array $instrument,
+        string $ownerUser,
+        array $segments,
+        string $timezone,
+        ?string $excludeGroupId
+    ): void {
+        $limit = (int)$instrument['weekly_quota_minutes'];
+        if ($limit === 0) {
+            return;
+        }
+        foreach ($segments as [$segmentStart, $segmentEnd]) {
+            [$weekStart, $weekEnd] = $this->weekBoundsForTimestamp($segmentStart, $timezone);
+            $sql = 'SELECT COALESCE(SUM(
+                        MIN(end_ts, :week_end) - MAX(start_ts, :week_start)
+                    ), 0)
+                    FROM events
+                    WHERE instrument_code = :instrument_code
+                      AND owner_user = :owner_user
+                      AND event_type = :event_type
+                      AND cancelled_at IS NULL
+                      AND start_ts < :week_end
+                      AND end_ts > :week_start';
+            $params = [
+                ':week_start' => $weekStart,
+                ':week_end' => $weekEnd,
+                ':instrument_code' => $instrument['code'],
+                ':owner_user' => $ownerUser,
+                ':event_type' => 'booking',
+            ];
+            if ($excludeGroupId !== null) {
+                $sql .= ' AND booking_group_id <> :booking_group_id';
+                $params[':booking_group_id'] = $excludeGroupId;
+            }
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $usedMinutes = intdiv((int)$stmt->fetchColumn(), 60);
+            $requestedMinutes = intdiv($segmentEnd - $segmentStart, 60);
+            if ($usedMinutes + $requestedMinutes > $limit) {
+                throw new InstrumentBookingException(
+                    'WEEKLY_LIMIT_EXCEEDED',
+                    'Weekly booking limit exceeded. Used: ' . $this->formatMinutes($usedMinutes)
+                        . ', requested: ' . $this->formatMinutes($requestedMinutes)
+                        . ', limit: ' . $this->formatMinutes($limit) . '.',
+                    409
+                );
+            }
+        }
+    }
+
+    private function formatMinutes(int $minutes): string
+    {
+        if ($minutes % 60 === 0) {
+            return intdiv($minutes, 60) . ' hours';
+        }
+        return $minutes . ' minutes';
+    }
+
+    private function insertEventSegment(
+        PDO $pdo,
+        string $instrumentCode,
+        string $eventType,
+        string $ownerUser,
+        string $title,
+        string $note,
+        int $start,
+        int $end,
+        string $requestId,
+        string $bookingGroupId,
+        int $createdAt,
+        int $updatedAt
+    ): void {
+        $stmt = $pdo->prepare(
+            'INSERT INTO events (
+                instrument_code, event_type, owner_user, title, note,
+                start_ts, end_ts, blocked_start_ts, blocked_end_ts,
+                request_id, booking_group_id, created_at, updated_at
+             ) VALUES (
+                :instrument_code, :event_type, :owner_user, :title, :note,
+                :start_ts, :end_ts, :start_ts, :end_ts,
+                :request_id, :booking_group_id, :created_at, :updated_at
+             )'
+        );
+        $stmt->execute([
+            ':instrument_code' => $instrumentCode,
+            ':event_type' => $eventType,
+            ':owner_user' => $ownerUser,
+            ':title' => $title,
+            ':note' => $note,
+            ':start_ts' => $start,
+            ':end_ts' => $end,
+            ':request_id' => $requestId,
+            ':booking_group_id' => $bookingGroupId,
+            ':created_at' => $createdAt,
+            ':updated_at' => $updatedAt,
+        ]);
+    }
+
+    private function logicalEventFromSegments(array $segments): array
+    {
+        if ($segments === []) {
+            throw new InstrumentBookingException('EVENT_NOT_FOUND', 'The booking event was not found.', 404);
+        }
+        usort($segments, static fn(array $a, array $b): int => (int)$a['start_ts'] <=> (int)$b['start_ts']);
+        $event = $segments[0];
+        $event['start_ts'] = min(array_map(static fn(array $row): int => (int)$row['start_ts'], $segments));
+        $event['end_ts'] = max(array_map(static fn(array $row): int => (int)$row['end_ts'], $segments));
+        return $event;
     }
 
     private function requireInstrumentCode(array $input): string
@@ -765,16 +1132,86 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return $code;
     }
 
-    private function requireInstrument(array $config, string $code, bool $mustBeEnabled): array
+    private function requireInstrument(PDO $pdo, string $code): array
     {
-        if (!isset($config['instruments'][$code])) {
+        $instrument = $this->findInstrument($pdo, $code);
+        if ($instrument === null) {
             throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', 'The instrument was not found.', 404);
         }
-        $instrument = $config['instruments'][$code];
-        if ($mustBeEnabled && !$instrument['enabled']) {
-            throw new InstrumentBookingException('INSTRUMENT_DISABLED', 'This instrument is not currently available for booking.', 403);
-        }
         return $instrument;
+    }
+
+    private function findInstrument(PDO $pdo, string $code): ?array
+    {
+        $stmt = $pdo->prepare('SELECT * FROM instruments WHERE code = :code');
+        $stmt->execute([':code' => $code]);
+        $row = $stmt->fetch();
+        return $row === false ? null : $row;
+    }
+
+    private function instrumentForResponse(array $instrument): array
+    {
+        return [
+            'code' => (string)$instrument['code'],
+            'name' => (string)$instrument['name'],
+            'description' => (string)$instrument['description'],
+            'minMinutes' => 30,
+            'maxMinutes' => (int)$instrument['max_booking_minutes'],
+            'weeklyQuotaMinutes' => (int)$instrument['weekly_quota_minutes'],
+        ];
+    }
+
+    private function validatedInstrumentInput(array $input): array
+    {
+        $name = $this->cleanText($this->requireString($input, 'name', 120), 120);
+        $description = $this->cleanText($this->optionalString($input, 'description', 1000), 1000, true);
+        $maximum = $this->requireMinuteRule($input, 'maxBookingMinutes', false);
+        $weekly = $this->requireMinuteRule($input, 'weeklyQuotaMinutes', true);
+        if ($weekly !== 0 && $weekly < $maximum) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'The weekly limit must be zero or at least the maximum booking duration.',
+                400
+            );
+        }
+        return [
+            'name' => $name,
+            'description' => $description,
+            'max_booking_minutes' => $maximum,
+            'weekly_quota_minutes' => $weekly,
+        ];
+    }
+
+    private function requireMinuteRule(array $input, string $key, bool $allowZero): int
+    {
+        if (!array_key_exists($key, $input) || filter_var($input[$key], FILTER_VALIDATE_INT) === false) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'Time limits must be whole minutes.', 400);
+        }
+        $value = (int)$input[$key];
+        if ($allowZero && $value === 0) {
+            return 0;
+        }
+        if ($value < 30 || $value > 10080 || $value % 30 !== 0) {
+            throw new InstrumentBookingException(
+                'INVALID_INPUT',
+                'Time limits must use 30-minute increments between 30 and 10080 minutes.',
+                400
+            );
+        }
+        return $value;
+    }
+
+    private function newUuid(): string
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
+        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
+        $hex = bin2hex($bytes);
+        return substr($hex, 0, 8) . '-'
+            . substr($hex, 8, 4) . '-'
+            . substr($hex, 12, 4) . '-'
+            . substr($hex, 16, 4) . '-'
+            . substr($hex, 20);
     }
 
     private function optionalEventType(array $input): string
@@ -869,12 +1306,20 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return $row === false ? null : $row;
     }
 
-    private function findByRequestId(PDO $pdo, string $requestId): ?array
+    private function findByRequestId(PDO $pdo, string $requestId): array
     {
-        $stmt = $pdo->prepare('SELECT * FROM events WHERE request_id = :request_id');
+        $stmt = $pdo->prepare('SELECT * FROM events WHERE request_id = :request_id ORDER BY start_ts, id');
         $stmt->execute([':request_id' => $requestId]);
-        $row = $stmt->fetch();
-        return $row === false ? null : $row;
+        return $stmt->fetchAll();
+    }
+
+    private function findByBookingGroupId(PDO $pdo, string $bookingGroupId): array
+    {
+        $stmt = $pdo->prepare(
+            'SELECT * FROM events WHERE booking_group_id = :booking_group_id ORDER BY start_ts, id'
+        );
+        $stmt->execute([':booking_group_id' => $bookingGroupId]);
+        return $stmt->fetchAll();
     }
 
     private function countCleanupCancelled(PDO $pdo, int $cutoff, int $now): int
@@ -910,5 +1355,11 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return str_contains($message, 'database is locked')
             || str_contains($message, 'database is busy')
             || str_contains($message, 'sqlstate[hy000]: general error: 5');
+    }
+
+    private function isUniqueConstraintException(Throwable $e): bool
+    {
+        $message = strtolower($e->getMessage());
+        return str_contains($message, 'unique constraint failed');
     }
 }

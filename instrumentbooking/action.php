@@ -32,7 +32,13 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
             $context = $this->currentContext();
             $helper->requireAuthenticated($context);
 
-            if (in_array($operation, ['create', 'update', 'cancel'], true)) {
+            if (in_array($operation, [
+                'create',
+                'update',
+                'cancel',
+                'admin/instrument/create',
+                'admin/instrument/update',
+            ], true)) {
                 $this->requireMethod('POST');
                 $this->requireCsrfToken();
                 $input = $this->readJsonBody();
@@ -65,15 +71,25 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
 
     private function dispatch(string $operation, helper_plugin_instrumentbooking $helper, array $config, array $context, array $input): array
     {
+        $pdo = $helper->connect($config);
         if ($operation === 'instruments') {
-            $data = $helper->listInstruments($config, $context);
+            if ($helper->schemaVersion($pdo) !== helper_plugin_instrumentbooking::SCHEMA_VERSION) {
+                $data = [
+                    'timezone' => $config['timezone'],
+                    'isManager' => $helper->isManager($config, $context),
+                    'instruments' => [],
+                    'migrationRequired' => true,
+                    'migrationMessage' => 'Run: php lib/plugins/instrumentbooking/bin/install.php',
+                ];
+            } else {
+                $data = $helper->listInstruments($config, $pdo, $context);
+            }
             $data['sectok'] = function_exists('getSecurityToken')
                 ? getSecurityToken()
                 : '';
             return $data;
         }
 
-        $pdo = $helper->connect($config);
         $reloadConfig = function () use ($helper): array {
             return $helper->loadBookingConfig();
         };
@@ -89,6 +105,15 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
         }
         if ($operation === 'cancel') {
             return $helper->cancelEvent($config, $pdo, $context, $input, $reloadConfig);
+        }
+        if ($operation === 'admin/instruments') {
+            return $helper->listAdminInstruments($config, $pdo, $context);
+        }
+        if ($operation === 'admin/instrument/create') {
+            return $helper->createInstrument($config, $pdo, $context, $input);
+        }
+        if ($operation === 'admin/instrument/update') {
+            return $helper->updateInstrument($config, $pdo, $context, $input);
         }
 
         throw new InstrumentBookingException('INVALID_INPUT', 'Unknown operation.', 400);
