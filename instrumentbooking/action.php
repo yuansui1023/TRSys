@@ -66,7 +66,11 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
     private function dispatch(string $operation, helper_plugin_instrumentbooking $helper, array $config, array $context, array $input): array
     {
         if ($operation === 'instruments') {
-            return $helper->listInstruments($config, $context);
+            $data = $helper->listInstruments($config, $context);
+            $data['sectok'] = function_exists('getSecurityToken')
+                ? getSecurityToken()
+                : '';
+            return $data;
         }
 
         $pdo = $helper->connect($config);
@@ -124,7 +128,8 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
 
     private function requireCsrfToken(): void
     {
-        if (!function_exists('checkSecurityToken') || !checkSecurityToken()) {
+        $token = $_SERVER['HTTP_X_DOKUWIKI_SECTOK'] ?? '';
+        if (!is_string($token) || $token === '' || !function_exists('checkSecurityToken') || !checkSecurityToken($token)) {
             throw new InstrumentBookingException('CSRF_FAILED', 'The security token is invalid. Please refresh the page and try again.', 403);
         }
     }
@@ -158,6 +163,8 @@ class action_plugin_instrumentbooking extends DokuWiki_Action_Plugin
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
         header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: no-store, private');
+        header('Pragma: no-cache');
         echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 }
