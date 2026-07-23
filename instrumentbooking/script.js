@@ -128,10 +128,7 @@
 
         var appNav = el('nav', 'ib-app-nav');
         appNav.setAttribute('aria-label', 'Application navigation');
-        var wikiLink = el('a', 'ib-app-link');
-        wikiLink.href = wikiUrl(state.ajaxUrl);
-        wikiLink.textContent = 'Return to Lab Wiki';
-        appNav.appendChild(wikiLink);
+
         var settingsButton = button('button', 'Settings');
         settingsButton.className = 'ib-app-link ib-settings-button';
         settingsButton.hidden = true;
@@ -139,12 +136,13 @@
             openSettings(state);
         });
         appNav.appendChild(settingsButton);
-        appBar.appendChild(appNav);
-        shell.appendChild(appBar);
 
-        var toolbar = el('div', 'ib-toolbar');
-        var controls = el('div', 'ib-toolbar-controls');
-        var selectWrap = el('label', 'ib-field-inline');
+        var wikiLink = el('a', 'ib-app-link');
+        wikiLink.href = wikiUrl(state.ajaxUrl);
+        wikiLink.textContent = 'Return to Lab Wiki';
+        appNav.appendChild(wikiLink);
+
+        var selectWrap = el('label', 'ib-instrument-field');
         selectWrap.appendChild(text('Instrument'));
         var select = el('select', 'ib-instrument-select');
         select.addEventListener('change', function () {
@@ -154,10 +152,10 @@
             }
         });
         selectWrap.appendChild(select);
-        controls.appendChild(selectWrap);
+        appNav.appendChild(selectWrap);
 
-        toolbar.appendChild(controls);
-        shell.appendChild(toolbar);
+        appBar.appendChild(appNav);
+        shell.appendChild(appBar);
 
         var status = el('div', 'ib-status');
         status.setAttribute('role', 'status');
