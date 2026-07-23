@@ -577,32 +577,103 @@
 
         var heading = el('h3', 'ib-dialog-title');
         heading.id = 'ib-settings-title';
-        heading.textContent = 'Instrument Settings';
+        heading.textContent = 'Settings';
         dialog.appendChild(heading);
 
         var introduction = el('p', 'ib-settings-intro');
-        introduction.textContent = 'Create instruments and configure booking duration and weekly limits.';
+        introduction.textContent = 'Manage tools and TRSys administrators.';
         dialog.appendChild(introduction);
 
         var message = el('p', 'ib-dialog-message ib-settings-message');
         dialog.appendChild(message);
 
+        var adminsSection = el('section', 'ib-settings-section');
+        var adminsTitle = el('h4', 'ib-settings-section-title');
+        adminsTitle.textContent = 'Administrators';
+        adminsSection.appendChild(adminsTitle);
+        var adminsHelp = el('p', 'ib-settings-empty');
+        adminsHelp.textContent = 'Admins can be viewed and added here. Use the server CLI to revoke access.';
+        adminsSection.appendChild(adminsHelp);
+        adminsSection.appendChild(el('div', 'ib-admin-list'));
+        var addAdminForm = el('form', 'ib-admin-add-form');
+        addAdminForm.appendChild(settingsTextField('username', 'Add administrator username', '', 255, true));
+        var addAdminButton = button('submit', 'Add Admin');
+        addAdminForm.appendChild(addAdminButton);
+        addAdminForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            submitAddAdmin(state, overlay, addAdminForm);
+        });
+        adminsSection.appendChild(addAdminForm);
+        dialog.appendChild(adminsSection);
+
+        var toolsSection = el('section', 'ib-settings-section');
+        var toolsTitle = el('h4', 'ib-settings-section-title');
+        toolsTitle.textContent = 'Tools';
+        toolsSection.appendChild(toolsTitle);
         var actions = el('div', 'ib-settings-actions');
         var addButton = button('button', 'Add instrument');
         addButton.addEventListener('click', function () {
             overlay.querySelector('.ib-settings-list').prepend(buildInstrumentSettingsForm(state, overlay, null));
         });
         actions.appendChild(addButton);
-        dialog.appendChild(actions);
+        toolsSection.appendChild(actions);
+        toolsSection.appendChild(el('div', 'ib-settings-list'));
+        dialog.appendChild(toolsSection);
 
-        dialog.appendChild(el('div', 'ib-settings-list'));
         overlay.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && !state.saving) {
+                var confirm = overlay.querySelector('.ib-delete-confirm');
+                if (confirm && !confirm.hidden) {
+                    confirm.hidden = true;
+                    return;
+                }
                 overlay.hidden = true;
             }
         });
         overlay.appendChild(dialog);
+        overlay.appendChild(buildDeleteConfirmDialog(state, overlay));
         return overlay;
+    }
+
+    function buildDeleteConfirmDialog(state, settingsOverlay) {
+        var confirm = el('div', 'ib-dialog-overlay ib-delete-confirm');
+        confirm.hidden = true;
+        var dialog = el('div', 'ib-dialog ib-delete-confirm-dialog');
+        dialog.setAttribute('role', 'dialog');
+        dialog.setAttribute('aria-modal', 'true');
+        var title = el('h3', 'ib-dialog-title');
+        title.textContent = 'Delete Tool';
+        dialog.appendChild(title);
+        dialog.appendChild(el('div', 'ib-delete-summary'));
+        var warning = el('p', 'ib-delete-warning');
+        warning.textContent = 'This permanently deletes the tool and all of its bookings and outages. This cannot be undone.';
+        dialog.appendChild(warning);
+        dialog.appendChild(settingsTextField('confirmName', 'Type the exact tool name to confirm', '', 120, true));
+        var message = el('p', 'ib-dialog-message ib-delete-message');
+        dialog.appendChild(message);
+        var buttons = el('div', 'ib-dialog-buttons');
+        var cancel = button('button', 'Cancel');
+        cancel.addEventListener('click', function () {
+            if (!state.saving) {
+                confirm.hidden = true;
+            }
+        });
+        var destroy = button('button', 'Delete permanently');
+        destroy.className += ' ib-danger';
+        destroy.disabled = true;
+        destroy.addEventListener('click', function () {
+            submitDeleteInstrument(state, settingsOverlay, confirm);
+        });
+        buttons.appendChild(cancel);
+        buttons.appendChild(destroy);
+        dialog.appendChild(buttons);
+        confirm.appendChild(dialog);
+
+        confirm.querySelector('[name="confirmName"]').addEventListener('input', function () {
+            var expected = confirm._expectedName || '';
+            destroy.disabled = getValue(confirm, 'confirmName') !== expected || state.saving;
+        });
+        return confirm;
     }
 
     function openSettings(state) {
@@ -613,10 +684,62 @@
         overlay.hidden = false;
         setSettingsMessage(overlay, 'Loading settings...', false);
         api(state, 'GET', 'admin/instruments', {}).then(function (data) {
+            renderAdminList(overlay, data.admins || []);
             renderInstrumentSettings(state, overlay, data.instruments || []);
             setSettingsMessage(overlay, '', false);
         }).catch(function (err) {
             setSettingsMessage(overlay, err.message || 'Unable to load instrument settings.', true);
+        });
+    }
+
+    function renderAdminList(overlay, admins) {
+        var list = overlay.querySelector('.ib-admin-list');
+        list.textContent = '';
+        if (!admins.length) {
+            var empty = el('p', 'ib-settings-empty');
+            empty.textContent = 'No TRSys administrators have been added yet.';
+            list.appendChild(empty);
+            return;
+        }
+        admins.forEach(function (admin) {
+            var row = el('div', 'ib-admin-row');
+            var name = el('span', 'ib-admin-username');
+            name.textContent = admin.username;
+            var added = el('span', 'ib-admin-added');
+            added.textContent = 'Added ' + formatAdminDate(admin.addedAt);
+            row.appendChild(name);
+            row.appendChild(added);
+            list.appendChild(row);
+        });
+    }
+
+    function formatAdminDate(timestamp) {
+        var date = new Date(Number(timestamp) * 1000);
+        if (!Number.isFinite(date.getTime())) {
+            return 'unknown date';
+        }
+        return date.toISOString().slice(0, 10);
+    }
+
+    function submitAddAdmin(state, overlay, form) {
+        if (state.saving) {
+            return;
+        }
+        state.saving = true;
+        setSettingsMessage(overlay, 'Adding administrator...', false);
+        api(state, 'POST', 'admin/users/add', {
+            username: getValue(form, 'username')
+        }).then(function () {
+            setValue(form, 'username', '');
+            return api(state, 'GET', 'admin/instruments', {});
+        }).then(function (data) {
+            renderAdminList(overlay, data.admins || []);
+            renderInstrumentSettings(state, overlay, data.instruments || []);
+            setSettingsMessage(overlay, 'Administrator added.', false);
+        }).catch(function (err) {
+            setSettingsMessage(overlay, err.message || 'Unable to add administrator.', true);
+        }).finally(function () {
+            state.saving = false;
         });
     }
 
@@ -628,7 +751,7 @@
         });
         if (instruments.length === 0) {
             var empty = el('p', 'ib-settings-empty');
-            empty.textContent = 'No instruments are configured.';
+            empty.textContent = 'No tools are currently available.';
             list.appendChild(empty);
         }
     }
@@ -662,6 +785,13 @@
                 form.remove();
             });
             buttons.appendChild(discard);
+        } else {
+            var deleteButton = button('button', 'Delete Tool');
+            deleteButton.className += ' ib-danger';
+            deleteButton.addEventListener('click', function () {
+                openDeleteConfirm(state, overlay, instrument);
+            });
+            buttons.appendChild(deleteButton);
         }
         var save = button('submit', isCreate ? 'Create instrument' : 'Save changes');
         buttons.appendChild(save);
@@ -696,6 +826,7 @@
             }).then(function () {
                 return api(state, 'GET', 'admin/instruments', {});
             }).then(function (data) {
+                renderAdminList(overlay, data.admins || []);
                 renderInstrumentSettings(state, overlay, data.instruments || []);
                 setSettingsMessage(overlay, 'Settings saved.', false);
             }).catch(function (err) {
@@ -708,6 +839,72 @@
             });
         });
         return form;
+    }
+
+    function openDeleteConfirm(state, settingsOverlay, instrument) {
+        var confirm = settingsOverlay.querySelector('.ib-delete-confirm');
+        setDeleteMessage(confirm, 'Loading tool details...', false);
+        confirm.hidden = false;
+        confirm._instrumentCode = instrument.code;
+        confirm._expectedName = instrument.name;
+        setValue(confirm, 'confirmName', '');
+        confirm.querySelector('.ib-danger').disabled = true;
+        api(state, 'GET', 'admin/instrument/delete-preview', {
+            instrumentCode: instrument.code
+        }).then(function (data) {
+            var summary = confirm.querySelector('.ib-delete-summary');
+            summary.textContent = '';
+            var name = el('p', 'ib-delete-name');
+            name.textContent = 'Tool: ' + data.instrument.name;
+            var description = el('p', 'ib-delete-description');
+            description.textContent = data.instrument.description
+                ? ('Description: ' + data.instrument.description)
+                : 'Description: (none)';
+            var totals = el('p', 'ib-delete-counts');
+            totals.textContent = 'Associated events: ' + data.totalEvents
+                + ' · Future events: ' + data.futureEvents;
+            summary.appendChild(name);
+            summary.appendChild(description);
+            summary.appendChild(totals);
+            confirm._expectedName = data.instrument.name;
+            confirm.querySelector('[name="confirmName"]').placeholder = 'Type “' + data.instrument.name + '” to confirm';
+            setDeleteMessage(confirm, '', false);
+        }).catch(function (err) {
+            setDeleteMessage(confirm, err.message || 'Unable to load deletion details.', true);
+        });
+    }
+
+    function submitDeleteInstrument(state, settingsOverlay, confirm) {
+        if (state.saving) {
+            return;
+        }
+        state.saving = true;
+        setDeleteMessage(confirm, 'Deleting tool...', false);
+        api(state, 'POST', 'admin/instrument/delete', {
+            instrumentCode: confirm._instrumentCode,
+            confirmName: getValue(confirm, 'confirmName')
+        }).then(function () {
+            confirm.hidden = true;
+            return refreshInstrumentData(state);
+        }).then(function () {
+            return api(state, 'GET', 'admin/instruments', {});
+        }).then(function (data) {
+            renderAdminList(settingsOverlay, data.admins || []);
+            renderInstrumentSettings(state, settingsOverlay, data.instruments || []);
+            setSettingsMessage(settingsOverlay, 'Tool deleted.', false);
+        }).catch(function (err) {
+            setDeleteMessage(confirm, err.message || 'Unable to delete tool.', true);
+        }).finally(function () {
+            state.saving = false;
+            var expected = confirm._expectedName || '';
+            confirm.querySelector('.ib-danger').disabled = getValue(confirm, 'confirmName') !== expected;
+        });
+    }
+
+    function setDeleteMessage(confirm, message, isError) {
+        var node = confirm.querySelector('.ib-delete-message');
+        node.textContent = message;
+        node.classList.toggle('is-error', !!isError);
     }
 
     function settingsTextField(name, label, value, maxLength, required) {
@@ -769,9 +966,16 @@
                 state.selectedInstrument = state.instruments.length ? state.instruments[0].code : null;
             }
             refreshInstrumentSelect(state.root, state);
-            if (!state.calendar && state.selectedInstrument) {
+            if (!state.selectedInstrument) {
+                if (state.calendar) {
+                    state.calendar.removeAllEvents();
+                }
+                showStatus(state.root, 'No tools are currently available.', false);
+                return;
+            }
+            if (!state.calendar) {
                 initCalendar(state.root, state);
-            } else if (state.calendar) {
+            } else {
                 state.calendar.refetchEvents();
             }
         });

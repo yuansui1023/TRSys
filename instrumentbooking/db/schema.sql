@@ -1,6 +1,14 @@
 PRAGMA foreign_keys = ON;
 BEGIN IMMEDIATE;
 
+CREATE TABLE IF NOT EXISTS plugin_admins (
+    username    TEXT PRIMARY KEY COLLATE NOCASE,
+    added_at    INTEGER NOT NULL,
+    added_by    TEXT NOT NULL DEFAULT '',
+
+    CHECK (length(username) BETWEEN 1 AND 255)
+);
+
 CREATE TABLE IF NOT EXISTS instruments (
     code                    TEXT PRIMARY KEY,
     name                    TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -84,5 +92,5 @@ ON events (
     booking_group_id
 );
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 COMMIT;

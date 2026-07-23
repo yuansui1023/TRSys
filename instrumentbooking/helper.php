@@ -40,7 +40,7 @@ class InstrumentBookingException extends RuntimeException
 class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 {
     public const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
-    public const SCHEMA_VERSION = 2;
+    public const SCHEMA_VERSION = 3;
 
     public function defaultConfigPath(): string
     {
@@ -168,20 +168,114 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         return [
             'timezone' => $config['timezone'],
-            'isManager' => $this->isManager($config, $context),
+            'isManager' => $this->isManager($config, $context, $pdo),
             'instruments' => $result,
         ];
     }
 
     public function listAdminInstruments(array $config, PDO $pdo, array $context): array
     {
-        $this->requireAdmin($config, $context);
-        return ['instruments' => $this->listInstruments($config, $pdo, $context)['instruments']];
+        $this->requireAdmin($config, $pdo, $context);
+        return [
+            'instruments' => $this->listInstruments($config, $pdo, $context)['instruments'],
+            'admins' => $this->listPluginAdmins($pdo),
+        ];
+    }
+
+    public function listPluginAdmins(PDO $pdo): array
+    {
+        $this->assertSchemaCurrent($pdo);
+        $rows = $pdo->query(
+            'SELECT username, added_at
+             FROM plugin_admins
+             ORDER BY username COLLATE NOCASE'
+        )->fetchAll();
+        return array_map(static function (array $row): array {
+            return [
+                'username' => (string)$row['username'],
+                'addedAt' => (int)$row['added_at'],
+            ];
+        }, $rows);
+    }
+
+    public function addPluginAdmin(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
+    {
+        $this->requireAdmin($config, $pdo, $context);
+        $this->assertSchemaCurrent($pdo);
+        $username = $this->cleanText($this->requireString($input, 'username', 255), 255);
+        $now = $nowTimestamp ?? time();
+
+        $this->beginImmediate($pdo);
+        try {
+            if (!$this->isManager($config, $context, $pdo)) {
+                throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
+            $stmt = $pdo->prepare(
+                'INSERT INTO plugin_admins (username, added_at, added_by)
+                 VALUES (:username, :added_at, :added_by)'
+            );
+            $stmt->execute([
+                ':username' => $username,
+                ':added_at' => $now,
+                ':added_by' => (string)$context['user'],
+            ]);
+            $pdo->commit();
+            return [
+                'admin' => [
+                    'username' => $username,
+                    'addedAt' => $now,
+                ],
+            ];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($this->isUniqueConstraintException($e)) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'That administrator already exists.', 409);
+            }
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw $e;
+        }
+    }
+
+    public function revokePluginAdminCli(PDO $pdo, string $username): array
+    {
+        $this->assertSchemaCurrent($pdo);
+        $username = $this->cleanText($username, 255);
+        $this->beginImmediate($pdo);
+        try {
+            $existing = $this->findPluginAdmin($pdo, $username);
+            if ($existing === null) {
+                throw new InstrumentBookingException('ADMIN_NOT_FOUND', 'That username is not a TRSys administrator.', 404);
+            }
+            $count = (int)$pdo->query('SELECT COUNT(*) FROM plugin_admins')->fetchColumn();
+            if ($count <= 1) {
+                throw new InstrumentBookingException(
+                    'LAST_ADMIN_CANNOT_BE_REVOKED',
+                    'The last TRSys administrator cannot be revoked.',
+                    409
+                );
+            }
+            $stmt = $pdo->prepare('DELETE FROM plugin_admins WHERE username = :username COLLATE NOCASE');
+            $stmt->execute([':username' => $username]);
+            $pdo->commit();
+            return [
+                'revoked' => true,
+                'username' => (string)$existing['username'],
+                'remainingAdmins' => $count - 1,
+            ];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw $e;
+        }
     }
 
     public function createInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
-        $this->requireAdmin($config, $context);
+        $this->requireAdmin($config, $pdo, $context);
         $this->assertSchemaCurrent($pdo);
         $values = $this->validatedInstrumentInput($input);
         $now = $nowTimestamp ?? time();
@@ -189,6 +283,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
+            if (!$this->isManager($config, $context, $pdo)) {
+                throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
             $stmt = $pdo->prepare(
                 'INSERT INTO instruments (
                     code, name, description, max_booking_minutes,
@@ -224,7 +321,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
     public function updateInstrument(array $config, PDO $pdo, array $context, array $input, ?int $nowTimestamp = null): array
     {
-        $this->requireAdmin($config, $context);
+        $this->requireAdmin($config, $pdo, $context);
         $this->assertSchemaCurrent($pdo);
         $code = $this->requireInstrumentCode($input);
         $values = $this->validatedInstrumentInput($input);
@@ -232,6 +329,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
         $this->beginImmediate($pdo);
         try {
+            if (!$this->isManager($config, $context, $pdo)) {
+                throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
             if ($this->findInstrument($pdo, $code) === null) {
                 throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', 'The instrument was not found.', 404);
             }
@@ -264,6 +364,82 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
             }
             throw $e;
+        }
+    }
+
+    public function instrumentDeletionPreview(array $config, PDO $pdo, array $context, array $input): array
+    {
+        $this->requireAdmin($config, $pdo, $context);
+        $this->assertSchemaCurrent($pdo);
+        $code = $this->requireInstrumentCode($input);
+        $instrument = $this->requireInstrument($pdo, $code);
+        $now = time();
+        $total = $pdo->prepare('SELECT COUNT(*) FROM events WHERE instrument_code = :code');
+        $total->execute([':code' => $code]);
+        $future = $pdo->prepare(
+            'SELECT COUNT(*) FROM events
+             WHERE instrument_code = :code
+               AND cancelled_at IS NULL
+               AND end_ts > :now'
+        );
+        $future->execute([':code' => $code, ':now' => $now]);
+        return [
+            'instrument' => $this->instrumentForResponse($instrument),
+            'totalEvents' => (int)$total->fetchColumn(),
+            'futureEvents' => (int)$future->fetchColumn(),
+        ];
+    }
+
+    public function deleteInstrument(array $config, PDO $pdo, array $context, array $input): array
+    {
+        $this->requireAdmin($config, $pdo, $context);
+        $this->assertSchemaCurrent($pdo);
+        $code = $this->requireInstrumentCode($input);
+        $confirmName = $this->requireString($input, 'confirmName', 120);
+
+        $this->beginImmediate($pdo);
+        try {
+            if (!$this->isManager($config, $context, $pdo)) {
+                throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
+            }
+            $instrument = $this->findInstrument($pdo, $code);
+            if ($instrument === null) {
+                throw new InstrumentBookingException('INSTRUMENT_NOT_FOUND', 'The instrument was not found.', 404);
+            }
+            if ((string)$instrument['name'] !== $confirmName) {
+                throw new InstrumentBookingException(
+                    'DELETE_CONFIRMATION_MISMATCH',
+                    'The confirmation name does not match the instrument name.',
+                    400
+                );
+            }
+
+            $countStmt = $pdo->prepare('SELECT COUNT(*) FROM events WHERE instrument_code = :code');
+            $countStmt->execute([':code' => $code]);
+            $deletedEvents = (int)$countStmt->fetchColumn();
+
+            $deleteEvents = $pdo->prepare('DELETE FROM events WHERE instrument_code = :code');
+            $deleteEvents->execute([':code' => $code]);
+            $deleteInstrument = $pdo->prepare('DELETE FROM instruments WHERE code = :code');
+            $deleteInstrument->execute([':code' => $code]);
+            if ($deleteInstrument->rowCount() !== 1) {
+                throw new InstrumentBookingException('DELETE_FAILED', 'The instrument could not be deleted.', 500);
+            }
+            $pdo->commit();
+            return [
+                'deleted' => true,
+                'instrumentCode' => $code,
+                'deletedEvents' => $deletedEvents,
+            ];
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            if ($e instanceof InstrumentBookingException) {
+                throw $e;
+            }
+            if ($this->isBusyException($e)) {
+                throw new InstrumentBookingException('DATABASE_BUSY', 'The booking database is busy. Please try again later.', 503);
+            }
+            throw new InstrumentBookingException('DELETE_FAILED', 'The instrument could not be deleted.', 500);
         }
     }
 
@@ -307,6 +483,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $fullSegments = $this->findByBookingGroupId($pdo, (string)$segments[0]['booking_group_id']);
             $events[] = $this->eventForResponse(
                 $config,
+                $pdo,
                 $this->logicalEventFromSegments($fullSegments),
                 $context
             );
@@ -343,6 +520,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 return [
                     'event' => $this->eventForResponse(
                         $config,
+                        $pdo,
                         $this->logicalEventFromSegments($existing),
                         $context
                     ),
@@ -353,7 +531,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $instrumentCode = $this->requireInstrumentCode($input);
             $instrument = $this->requireInstrument($pdo, $instrumentCode);
             $eventType = $this->optionalEventType($input);
-            $this->assertCreateAllowed($config, $context, $eventType);
+            $this->assertCreateAllowed($config, $pdo, $context, $eventType);
 
             $now = $nowTimestamp ?? time();
             [$start, $end] = $this->validatedTimesForInstrument(
@@ -400,7 +578,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $bookingGroupId));
             $pdo->commit();
-            return ['event' => $this->eventForResponse($config, $event, $context), 'idempotent' => false];
+            return ['event' => $this->eventForResponse($config, $pdo, $event, $context), 'idempotent' => false];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
@@ -435,7 +613,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $existingSegments = $this->findByBookingGroupId($pdo, (string)$selectedSegment['booking_group_id']);
             $existing = $this->logicalEventFromSegments($existingSegments);
             $now = $nowTimestamp ?? time();
-            if (!$this->canEditEvent($config, $existing, $context, $now)) {
+            if (!$this->canEditEvent($config, $pdo, $existing, $context, $now)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be edited.', 403);
             }
 
@@ -445,8 +623,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 throw new InstrumentBookingException('INVALID_INPUT', 'The event type cannot be changed after creation.', 400);
             }
             $eventType = $existing['event_type'];
-            if ($eventType === 'block' && !$this->isManager($config, $context)) {
-                throw new InstrumentBookingException('PERMISSION_DENIED', 'Only managers can create maintenance or outage blocks.', 403);
+            if ($eventType === 'block' && !$this->isManager($config, $context, $pdo)) {
+                throw new InstrumentBookingException('PERMISSION_DENIED', 'Only administrators can create outages.', 403);
             }
 
             [$start, $end] = $this->validatedTimesForInstrument(
@@ -495,7 +673,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
             $pdo->commit();
-            return ['event' => $this->eventForResponse($config, $event, $context)];
+            return ['event' => $this->eventForResponse($config, $pdo, $event, $context)];
         } catch (Throwable $e) {
             $this->rollBackQuietly($pdo);
             if ($this->isBusyException($e)) {
@@ -522,7 +700,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             }
             $groupId = (string)$selectedSegment['booking_group_id'];
             $event = $this->logicalEventFromSegments($this->findByBookingGroupId($pdo, $groupId));
-            if (!$this->canCancelEvent($config, $event, $context)) {
+            if (!$this->canCancelEvent($config, $pdo, $event, $context)) {
                 throw new InstrumentBookingException('EVENT_NOT_EDITABLE', 'This booking cannot be cancelled.', 403);
             }
 
@@ -652,6 +830,10 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
         if ($version === 1) {
             $this->migrateSchemaV1ToV2($pdo);
+            $version = 2;
+        }
+        if ($version === 2) {
+            $this->migrateSchemaV2ToV3($pdo);
             return;
         }
         if ($version !== self::SCHEMA_VERSION) {
@@ -783,6 +965,34 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         $pdo->exec('CREATE INDEX IF NOT EXISTS events_group_idx ON events (booking_group_id)');
     }
 
+    private function migrateSchemaV2ToV3(PDO $pdo): void
+    {
+        $this->beginImmediate($pdo);
+        try {
+            $pdo->exec(
+                'CREATE TABLE IF NOT EXISTS plugin_admins (
+                    username TEXT PRIMARY KEY COLLATE NOCASE,
+                    added_at INTEGER NOT NULL,
+                    added_by TEXT NOT NULL DEFAULT \'\',
+                    CHECK (length(username) BETWEEN 1 AND 255)
+                )'
+            );
+            $pdo->exec('PRAGMA user_version = 3');
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $this->rollBackQuietly($pdo);
+            throw $e;
+        }
+    }
+
+    private function findPluginAdmin(PDO $pdo, string $username): ?array
+    {
+        $stmt = $pdo->prepare('SELECT * FROM plugin_admins WHERE username = :username COLLATE NOCASE');
+        $stmt->execute([':username' => $username]);
+        $row = $stmt->fetch();
+        return $row === false ? null : $row;
+    }
+
     private function normalizedLegacyMaximum(int $minutes): int
     {
         $minutes = max(30, min(10080, $minutes));
@@ -796,13 +1006,19 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         }
     }
 
-    public function isManager(array $config, array $context): bool
+    public function isManager(array $config, array $context, ?PDO $pdo = null): bool
     {
         if (!empty($context['isSuperuser'])) {
             return true;
         }
         $groups = $context['groups'] ?? [];
-        return count(array_intersect($groups, $config['manager_groups'])) > 0;
+        if (count(array_intersect($groups, $config['manager_groups'])) > 0) {
+            return true;
+        }
+        if ($pdo !== null && $this->schemaVersion($pdo) >= 3 && !empty($context['user'])) {
+            return $this->findPluginAdmin($pdo, (string)$context['user']) !== null;
+        }
+        return false;
     }
 
     public function userHasInstrumentAccess(array $instrument, array $context): bool
@@ -810,43 +1026,43 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return !empty($context['user']);
     }
 
-    public function requireAdmin(array $config, array $context): void
+    public function requireAdmin(array $config, PDO $pdo, array $context): void
     {
         $this->requireAuthenticated($context);
-        if (!$this->isManager($config, $context)) {
-            throw new InstrumentBookingException('PERMISSION_DENIED', 'Administrator access is required.', 403);
+        if (!$this->isManager($config, $context, $pdo)) {
+            throw new InstrumentBookingException('ADMIN_REQUIRED', 'Administrator access is required.', 403);
         }
     }
 
-    private function assertCreateAllowed(array $config, array $context, string $eventType): void
+    private function assertCreateAllowed(array $config, PDO $pdo, array $context, string $eventType): void
     {
-        if ($eventType === 'block' && !$this->isManager($config, $context)) {
+        if ($eventType === 'block' && !$this->isManager($config, $context, $pdo)) {
             throw new InstrumentBookingException('PERMISSION_DENIED', 'Only administrators can create outages.', 403);
         }
     }
 
-    private function canEditEvent(array $config, array $event, array $context, ?int $nowTimestamp = null): bool
+    private function canEditEvent(array $config, PDO $pdo, array $event, array $context, ?int $nowTimestamp = null): bool
     {
         if ((int)$event['start_ts'] < $this->nextBookableSlotTimestamp($config['timezone'], $nowTimestamp)) {
             return false;
         }
         return $event['owner_user'] === $context['user']
-            && ($event['event_type'] === 'booking' || $this->isManager($config, $context));
+            && ($event['event_type'] === 'booking' || $this->isManager($config, $context, $pdo));
     }
 
-    private function canCancelEvent(array $config, array $event, array $context): bool
+    private function canCancelEvent(array $config, PDO $pdo, array $event, array $context): bool
     {
         $now = time();
         if ($event['owner_user'] !== $context['user']) {
             return false;
         }
         if ($event['event_type'] === 'block') {
-            return $this->isManager($config, $context) && (int)$event['end_ts'] > $now;
+            return $this->isManager($config, $context, $pdo) && (int)$event['end_ts'] > $now;
         }
         return (int)$event['start_ts'] > $now;
     }
 
-    private function eventForResponse(array $config, array $event, array $context): array
+    private function eventForResponse(array $config, PDO $pdo, array $event, array $context): array
     {
         return [
             'id' => (int)$event['id'],
@@ -860,8 +1076,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             'ownerUser' => $event['owner_user'],
             'createdAt' => $this->formatIso((int)$event['created_at'], $config['timezone']),
             'updatedAt' => $this->formatIso((int)$event['updated_at'], $config['timezone']),
-            'canEdit' => $this->canEditEvent($config, $event, $context),
-            'canCancel' => $this->canCancelEvent($config, $event, $context),
+            'canEdit' => $this->canEditEvent($config, $pdo, $event, $context),
+            'canCancel' => $this->canCancelEvent($config, $pdo, $event, $context),
         ];
     }
 
