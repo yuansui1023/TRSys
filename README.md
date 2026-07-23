@@ -40,7 +40,7 @@ no additional `instrumentbooking/` wrapper directory.
 ├── instrumentbooking.local.php.example
 ├── bin/
 │   ├── install.php                    initialize or migrate the database
-│   ├── admin.php                      initialize/revoke TRSys administrators
+│   ├── admin.php                      initialize/list/revoke administrators
 │   └── cleanup.php                    retention cleanup
 ├── conf/                              DokuWiki plugin configuration metadata
 ├── db/schema.sql                      SQLite schema
@@ -62,6 +62,11 @@ The following procedure targets a typical Ubuntu/Debian server with DokuWiki
 under `/var/www/dokuwiki` and the web server running as `www-data`. Adjust both
 values for your server.
 
+The installation order is: install requirements, clone the source, copy the
+plugin, create the local configuration and SQLite directory, initialize the
+database, bootstrap the first TRSys administrator, run the server tests, create
+the DokuWiki page, and finally create tools in **Settings**.
+
 ### 1. Install requirements
 
 TRSys requires:
@@ -78,12 +83,24 @@ On Ubuntu/Debian:
 ```sh
 sudo apt update
 sudo apt install git rsync sqlite3 php-cli php-sqlite3
-php -v
-php -m | grep -i pdo_sqlite
+env -u LD_LIBRARY_PATH php -v
+env -u LD_LIBRARY_PATH php -m | grep -i pdo_sqlite
 ```
 
 If PHP SQLite was installed after the web server started, restart the relevant
 Apache or PHP-FPM service before testing the plugin.
+
+Some scientific servers export a global `LD_LIBRARY_PATH`, commonly from
+MATLAB Runtime. An incompatible bundled `libstdc++.so.6` can prevent PHP
+extensions such as `gd`, `intl`, or `pdo_sqlite` from loading. Do not replace
+the system or MATLAB libraries. Run TRSys maintenance commands with
+`env -u LD_LIBRARY_PATH`, as shown throughout this guide, and verify the PHP
+modules as the web-server account:
+
+```sh
+sudo -u www-data env -u LD_LIBRARY_PATH \
+  php -m | grep -Ei 'PDO|pdo_sqlite|sqlite3|gd|intl'
+```
 
 ### 2. Set deployment paths and obtain the source
 
@@ -93,7 +110,8 @@ The DokuWiki root is the directory containing `doku.php`.
 export DOKUWIKI_ROOT=/var/www/dokuwiki
 export TRSYS_SOURCE=/opt/TRSys
 test -f "$DOKUWIKI_ROOT/doku.php"
-git clone https://github.com/yuansui1023/TRSys.git "$TRSYS_SOURCE"
+sudo env -u LD_LIBRARY_PATH git clone --branch main --single-branch \
+  https://github.com/yuansui1023/TRSys.git "$TRSYS_SOURCE"
 ```
 
 For an upgrade, use the existing source checkout and run `git pull` there
@@ -182,7 +200,7 @@ locking for this plugin is supported only on local storage.
 Run the installer as the same operating-system user that serves DokuWiki:
 
 ```sh
-sudo -u www-data env DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
+sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/install.php" \
   --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
 ```
@@ -198,7 +216,7 @@ This is a required installation step. The username must already exist in
 DokuWiki, and it must be the account's login name rather than its display name.
 
 ```sh
-sudo -u www-data env DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
+sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/admin.php" \
   bootstrap YOUR_DOKUWIKI_USERNAME \
   --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
@@ -211,7 +229,25 @@ account.
 After logging in with this account, open **Settings** to create tools and add
 additional TRSys administrators from the existing DokuWiki user list.
 
-### 8. Create the DokuWiki booking page
+### 8. Run the server tests
+
+Run the PHP test suite from the source checkout:
+
+```sh
+sudo -u www-data env -u LD_LIBRARY_PATH \
+  php "$TRSYS_SOURCE/tests/run.php"
+```
+
+For the current release, a successful result ends with:
+
+```text
+97 php tests, 0 failures
+```
+
+Node.js is not required on the production server. When it is absent, the test
+runner prints `[SKIP] js_logic_test.js`; this is expected and is not a failure.
+
+### 9. Create the DokuWiki booking page
 
 Create a page such as `booking:calendar` with this content:
 
@@ -230,6 +266,9 @@ Open the page and confirm:
 3. A normal user does not see **Settings** or the outage option.
 4. A normal booking can be created and an overlapping booking is rejected.
 5. Tool quotas and maximum durations are enforced.
+
+On a fresh database there are no tools. The first TRSys administrator must open
+**Settings** and create at least one tool before making a reservation.
 
 If old JavaScript or CSS is still shown after an update, use DokuWiki's purge
 URL once:
@@ -278,7 +317,8 @@ sudo -u www-data sqlite3 \
 Then update and redeploy:
 
 ```sh
-git -C "$TRSYS_SOURCE" pull
+sudo env -u LD_LIBRARY_PATH \
+  git -C "$TRSYS_SOURCE" pull --ff-only
 sudo rsync -a --delete --delete-excluded \
   --exclude='.git*' \
   --exclude='.cursor/' \
@@ -288,7 +328,7 @@ sudo rsync -a --delete --delete-excluded \
   --exclude='tests/' \
   "$TRSYS_SOURCE/" \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
-sudo -u www-data env DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
+sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/install.php" \
   --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
 ```
@@ -297,6 +337,10 @@ The live configuration and SQLite database are outside the deployed plugin
 directory, so the cleanup flags above do not overwrite them. They do remove
 stale repository-only files from the plugin directory; verify
 `DOKUWIKI_ROOT` before running the command.
+
+If a pulled commit changes only repository documentation or files under
+`tests/`, the installed production plugin is unchanged and the `rsync` and
+installer steps can be skipped.
 
 ## Backups and Cleanup
 
@@ -311,7 +355,7 @@ sudo -u www-data sqlite3 \
 Test retention cleanup without deleting data:
 
 ```sh
-sudo -u www-data php \
+sudo -u www-data env -u LD_LIBRARY_PATH php \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/cleanup.php" \
   --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php" \
   --dry-run --verbose
@@ -337,7 +381,9 @@ node tests/js_logic_test.js
 ```
 
 The production plugin does not require Node.js; Node is used only for
-development checks.
+development checks. `php tests/run.php` automatically skips the JavaScript
+logic test when Node.js is unavailable; run the two explicit `node` commands
+only on a development machine with Node.js installed.
 
 ## Administrator List CLI Reference
 
@@ -347,7 +393,7 @@ independent of DokuWiki groups and DokuWiki superuser settings.
 Initialize the first administrator during installation:
 
 ```sh
-sudo -u www-data env DOKUWIKI_ROOT=/var/www/dokuwiki \
+sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT=/var/www/dokuwiki \
   php /var/www/dokuwiki/lib/plugins/instrumentbooking/bin/admin.php \
   bootstrap EXISTING_DOKUWIKI_USERNAME \
   --config=/var/www/dokuwiki/conf/instrumentbooking.local.php
@@ -360,7 +406,7 @@ at a time.
 List the current TRSys administrators:
 
 ```sh
-sudo -u www-data env DOKUWIKI_ROOT=/var/www/dokuwiki \
+sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT=/var/www/dokuwiki \
   php /var/www/dokuwiki/lib/plugins/instrumentbooking/bin/admin.php \
   list \
   --config=/var/www/dokuwiki/conf/instrumentbooking.local.php
@@ -369,7 +415,7 @@ sudo -u www-data env DOKUWIKI_ROOT=/var/www/dokuwiki \
 Revoke a non-final administrator from the server CLI:
 
 ```sh
-sudo -u www-data php \
+sudo -u www-data env -u LD_LIBRARY_PATH php \
   /var/www/dokuwiki/lib/plugins/instrumentbooking/bin/admin.php \
   revoke EXISTING_ADMIN_USERNAME \
   --config=/var/www/dokuwiki/conf/instrumentbooking.local.php
