@@ -1459,11 +1459,25 @@
                 !canEdit
             );
         } else if (!isCreate && !canEdit) {
-            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner can modify this booking.', true);
+            setDialogMessage(overlay, readOnlyBookingMessage(eventData, Date.now()), true);
         } else {
             setDialogMessage(overlay, '', false);
         }
         overlay.hidden = false;
+    }
+
+    function readOnlyBookingMessage(eventData, nowTimestamp) {
+        var startTimestamp = Date.parse(eventData.start || '');
+        var endTimestamp = Date.parse(eventData.end || '');
+        var viewOnlyMessage = 'You can only view the complete reservation details.';
+
+        if (Number.isFinite(endTimestamp) && endTimestamp <= nowTimestamp) {
+            return viewOnlyMessage;
+        }
+        if (Number.isFinite(startTimestamp) && startTimestamp > nowTimestamp) {
+            return 'Only the owner can modify this booking.';
+        }
+        return viewOnlyMessage;
     }
 
     function submitDialog(state, overlay) {

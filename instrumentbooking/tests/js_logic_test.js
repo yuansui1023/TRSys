@@ -120,6 +120,44 @@ check('Cancel closes confirm without delete API in handler', function () {
     assert.ok(/cancel\.addEventListener\('click', function \(\) \{\s*if \(!state\.saving\) \{\s*confirm\.hidden = true;/m.test(script));
 });
 
+check('read-only booking messages distinguish completed and future bookings', function () {
+    var helperStart = script.indexOf('function readOnlyBookingMessage');
+    var helperEnd = script.indexOf('function submitDialog', helperStart);
+    assert.ok(helperStart !== -1 && helperEnd > helperStart);
+    var helperSource = script.slice(helperStart, helperEnd);
+    var readOnlyBookingMessage = new Function(
+        helperSource + '\nreturn readOnlyBookingMessage;'
+    )();
+    var now = Date.parse('2026-07-23T12:00:00-07:00');
+
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T09:00:00-07:00',
+            end: '2026-07-23T10:00:00-07:00'
+        }, now),
+        'You can only view the complete reservation details.'
+    );
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T13:00:00-07:00',
+            end: '2026-07-23T14:00:00-07:00'
+        }, now),
+        'Only the owner can modify this booking.'
+    );
+    assert.strictEqual(
+        readOnlyBookingMessage({
+            start: '2026-07-23T11:30:00-07:00',
+            end: '2026-07-23T12:30:00-07:00'
+        }, now),
+        'You can only view the complete reservation details.'
+    );
+    assert.ok(
+        script.indexOf(
+            'You can view the complete reservation details. Only the owner can modify this booking.'
+        ) === -1
+    );
+});
+
 check('nowIndicator disabled and custom week line helpers exist', function () {
     assert.ok(script.indexOf('nowIndicator: false') !== -1);
     assert.ok(script.indexOf('function classifyWeekNowLineMode') !== -1);
