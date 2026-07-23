@@ -41,12 +41,10 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
         $ajaxUrl = $base . 'lib/exe/ajax.php?call=instrumentbooking';
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
         $vendorCss = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.css';
-        $sectok = function_exists('getSecurityToken') ? getSecurityToken() : '';
 
         $renderer->doc .= '<link rel="stylesheet" href="' . $this->escape($vendorCss) . '">' . "\n";
         $renderer->doc .= '<div id="instrument-booking-app" class="instrument-booking-app"'
             . ' data-ajax-url="' . $this->escape($ajaxUrl) . '"'
-            . ' data-sectok="' . $this->escape($sectok) . '"'
             . ' data-fullcalendar-js="' . $this->escape($vendorJs) . '">'
             . '<p>' . $this->escape($this->getLang('loading') ?: 'Loading instrument bookings...') . '</p>'
             . '</div>' . "\n";
