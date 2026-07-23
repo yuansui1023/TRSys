@@ -112,14 +112,18 @@ body.instrument-booking-page #dokuwiki__content .page {
     --ib-scrollbar-thumb-hover: rgba(167, 139, 250, 0.58);
     box-sizing: border-box;
     display: flex;
-    flex: 1 1 auto;
+    flex: none;
     flex-direction: column;
-    width: 100%;
+    position: fixed;
+    z-index: 1;
+    top: 16px;
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    width: auto;
     min-height: 0;
-    height: calc(100vh - 32px);
-    height: calc(100dvh - 32px);
-    max-height: calc(100vh - 32px);
-    max-height: calc(100dvh - 32px);
+    height: auto;
+    max-height: none;
     padding: 16px 20px;
     overflow: hidden;
     color: var(--ib-text);
@@ -224,14 +228,8 @@ body.instrument-booking-page #dokuwiki__content .page {
 
 .instrument-booking-app[data-theme="midnight-lab"] .ib-instrument-field {
     display: inline-flex;
-    gap: 8px;
     align-items: center;
     margin: 0;
-    color: var(--ib-text-secondary);
-    font-size: 12px;
-    font-weight: 650;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     white-space: nowrap;
 }
 
@@ -1204,10 +1202,12 @@ body.instrument-booking-page #dokuwiki__content .page {
     }
 
     .instrument-booking-app[data-theme="midnight-lab"] {
-        height: calc(100vh - 16px);
-        height: calc(100dvh - 16px);
-        max-height: calc(100vh - 16px);
-        max-height: calc(100dvh - 16px);
+        top: 8px;
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+        height: auto;
+        max-height: none;
         padding: 12px;
         border-radius: 14px;
     }
