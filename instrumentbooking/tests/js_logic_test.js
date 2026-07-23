@@ -1,0 +1,174 @@
+'use strict';
+
+var fs = require('fs');
+var path = require('path');
+var assert = require('assert');
+
+var scriptPath = path.join(__dirname, '..', 'script.js');
+var script = fs.readFileSync(scriptPath, 'utf8');
+
+function civilDateParts(value) {
+    var dateMatch = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(value);
+    return {
+        year: Number(dateMatch[1]),
+        month: Number(dateMatch[2]),
+        day: Number(dateMatch[3])
+    };
+}
+
+function civilDateNumber(parts) {
+    return (parts.year * 10000) + (parts.month * 100) + parts.day;
+}
+
+function civilWeekday(parts) {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+}
+
+function civilDayDiff(start, endExclusive) {
+    var startUtc = Date.UTC(start.year, start.month - 1, start.day);
+    var endUtc = Date.UTC(endExclusive.year, endExclusive.month - 1, endExclusive.day);
+    return Math.round((endUtc - startUtc) / 86400000);
+}
+
+function addCivilDays(parts, days) {
+    var date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+    return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate()
+    };
+}
+
+function zonedDateKey(date, timezone) {
+    var formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    var result = {};
+    formatter.formatToParts(date).forEach(function (part) {
+        if (part.type !== 'literal') {
+            result[part.type] = part.value;
+        }
+    });
+    return result.year + '-' + result.month + '-' + result.day;
+}
+
+function classifyWeekNowLineMode(viewStartStr, viewEndStr, now, timezone) {
+    var viewStart = civilDateParts(viewStartStr);
+    var viewEndExclusive = civilDateParts(viewEndStr);
+    var todayKey = zonedDateKey(now, timezone);
+    var today = civilDateParts(todayKey + 'T12:00:00');
+    var todayNumber = civilDateNumber(today);
+    var startNumber = civilDateNumber(viewStart);
+    var endNumber = civilDateNumber(viewEndExclusive);
+
+    if (todayNumber >= startNumber && todayNumber < endNumber) {
+        return 'current';
+    }
+
+    var daySpan = civilDayDiff(viewStart, viewEndExclusive);
+    if (daySpan <= 0) {
+        return 'none';
+    }
+
+    var alignWeekday = civilWeekday(viewStart);
+    var todayWeekday = civilWeekday(today);
+    var delta = (todayWeekday - alignWeekday + 7) % 7;
+    var currentWeekStart = addCivilDays(today, -delta);
+    var nextWeekStart = addCivilDays(currentWeekStart, daySpan);
+    var nextWeekEnd = addCivilDays(nextWeekStart, daySpan);
+
+    if (
+        civilDateNumber(viewStart) === civilDateNumber(nextWeekStart)
+        && civilDateNumber(viewEndExclusive) === civilDateNumber(nextWeekEnd)
+    ) {
+        return 'next';
+    }
+    return 'none';
+}
+
+var failures = 0;
+
+function check(name, fn) {
+    try {
+        fn();
+        console.log('[PASS] ' + name);
+    } catch (error) {
+        failures += 1;
+        console.log('[FAIL] ' + name + ': ' + error.message);
+    }
+}
+
+check('Delete button uses type=button and opens confirm', function () {
+    assert.ok(script.indexOf("button('button', 'Delete')") !== -1);
+    assert.ok(script.indexOf('del.type = \'button\'') !== -1);
+    assert.ok(script.indexOf('openDeleteConfirm(') !== -1);
+    assert.ok(script.indexOf('ib-delete-confirm-overlay') !== -1);
+    assert.ok(script.indexOf('mountDeleteConfirmDialog') !== -1);
+});
+
+check('Delete confirm validates name before API and shows errors', function () {
+    assert.ok(script.indexOf('The confirmation name does not match the tool name.') !== -1);
+    assert.ok(script.indexOf("api(state, 'POST', 'admin/instrument/delete'") !== -1);
+    assert.ok(script.indexOf('setDeleteMessage(confirm, err.message') !== -1);
+    assert.ok(script.indexOf('setSettingsMessage(settingsOverlay, err.message') !== -1);
+});
+
+check('Cancel closes confirm without delete API in handler', function () {
+    assert.ok(/cancel\.addEventListener\('click', function \(\) \{\s*if \(!state\.saving\) \{\s*confirm\.hidden = true;/m.test(script));
+});
+
+check('nowIndicator disabled and custom week line helpers exist', function () {
+    assert.ok(script.indexOf('nowIndicator: false') !== -1);
+    assert.ok(script.indexOf('function classifyWeekNowLineMode') !== -1);
+    assert.ok(script.indexOf('function computeNowLineTopPx') !== -1);
+    assert.ok(script.indexOf('clearInterval(state.weekNowLineTimer)') !== -1);
+    assert.ok(script.indexOf('clearWeekNowLines(root)') !== -1);
+});
+
+check('Los Angeles current week classification', function () {
+    var timezone = 'America/Los_Angeles';
+    // Wednesday 2026-07-22 in LA
+    var now = new Date('2026-07-22T18:00:00-07:00');
+    var todayKey = zonedDateKey(now, timezone);
+    assert.strictEqual(todayKey, '2026-07-22');
+    // Sunday-start week containing 2026-07-22
+    var currentStart = '2026-07-19T00:00:00-07:00';
+    var currentEnd = '2026-07-26T00:00:00-07:00';
+    assert.strictEqual(classifyWeekNowLineMode(currentStart, currentEnd, now, timezone), 'current');
+});
+
+check('Los Angeles next week uses dim mode class path', function () {
+    var timezone = 'America/Los_Angeles';
+    var now = new Date('2026-07-22T15:20:00-07:00');
+    var nextStart = '2026-07-26T00:00:00-07:00';
+    var nextEnd = '2026-08-02T00:00:00-07:00';
+    assert.strictEqual(classifyWeekNowLineMode(nextStart, nextEnd, now, timezone), 'next');
+});
+
+check('Other weeks hide the now line', function () {
+    var timezone = 'America/Los_Angeles';
+    var now = new Date('2026-07-22T15:20:00-07:00');
+    var earlierStart = '2026-07-12T00:00:00-07:00';
+    var earlierEnd = '2026-07-19T00:00:00-07:00';
+    var laterStart = '2026-08-02T00:00:00-07:00';
+    var laterEnd = '2026-08-09T00:00:00-07:00';
+    assert.strictEqual(classifyWeekNowLineMode(earlierStart, earlierEnd, now, timezone), 'none');
+    assert.strictEqual(classifyWeekNowLineMode(laterStart, laterEnd, now, timezone), 'none');
+});
+
+check('Monday-aligned weeks still detect next week', function () {
+    var timezone = 'America/Los_Angeles';
+    var now = new Date('2026-07-22T15:20:00-07:00');
+    var currentStart = '2026-07-20T00:00:00-07:00';
+    var currentEnd = '2026-07-27T00:00:00-07:00';
+    var nextStart = '2026-07-27T00:00:00-07:00';
+    var nextEnd = '2026-08-03T00:00:00-07:00';
+    assert.strictEqual(classifyWeekNowLineMode(currentStart, currentEnd, now, timezone), 'current');
+    assert.strictEqual(classifyWeekNowLineMode(nextStart, nextEnd, now, timezone), 'next');
+});
+
+console.log('js_logic_test: ' + (failures === 0 ? 'ok' : failures + ' failures'));
+process.exit(failures === 0 ? 0 : 1);

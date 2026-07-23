@@ -737,6 +737,12 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
 
             $deleteEvents = $pdo->prepare('DELETE FROM events WHERE instrument_code = :code');
             $deleteEvents->execute([':code' => $code]);
+            $remainingEvents = $pdo->prepare('SELECT COUNT(*) FROM events WHERE instrument_code = :code');
+            $remainingEvents->execute([':code' => $code]);
+            if ((int)$remainingEvents->fetchColumn() !== 0) {
+                throw new InstrumentBookingException('DELETE_FAILED', 'Associated events could not be deleted.', 500);
+            }
+
             $deleteInstrument = $pdo->prepare('DELETE FROM instruments WHERE code = :code');
             $deleteInstrument->execute([':code' => $code]);
             if ($deleteInstrument->rowCount() !== 1) {
