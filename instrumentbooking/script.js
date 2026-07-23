@@ -248,18 +248,12 @@
             container.classList.add('ib-event-content-compact');
             var compact = el('div', 'ib-event-compact');
             var compactTime = el('span', 'ib-event-time');
-            compactTime.textContent = displayTime.split('–')[0];
+            compactTime.textContent = displayTime;
             compact.appendChild(compactTime);
             compact.appendChild(document.createTextNode(' · '));
             var compactOwner = el('span', 'ib-event-owner');
             compactOwner.textContent = eventData.ownerUser;
             compact.appendChild(compactOwner);
-            if (eventData.note) {
-                compact.appendChild(document.createTextNode(' · '));
-                var compactNote = el('span', 'ib-event-note');
-                compactNote.textContent = eventData.note;
-                compact.appendChild(compactNote);
-            }
             container.appendChild(compact);
         } else {
             var time = el('div', 'ib-event-time');
@@ -297,7 +291,7 @@
         dialog.setAttribute('aria-modal', 'true');
 
         var closeButton = button('button', '×');
-        closeButton.className += ' ib-dialog-close';
+        closeButton.className += ' ib-dialog-close ib-danger';
         closeButton.setAttribute('aria-label', 'Close');
         closeButton.addEventListener('click', function () {
             if (!state.saving) {
@@ -409,7 +403,7 @@
         overlay.querySelector('[name="end"]').disabled = !canEdit;
         overlay.querySelector('[name="note"]').disabled = !canEdit;
         overlay.querySelector('[type="submit"]').hidden = !canEdit;
-        overlay.querySelector('.ib-danger').hidden = !(eventData.canCancel && !isCreate);
+        overlay.querySelector('.ib-dialog-buttons .ib-danger').hidden = !(eventData.canCancel && !isCreate);
         if (!isCreate && eventData.eventType === 'block') {
             setDialogMessage(overlay, 'This is an equipment outage. Only an administrator can modify it.', false);
         } else if (!isCreate && !canEdit) {
