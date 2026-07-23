@@ -232,11 +232,10 @@ check('timegrid hides half-hour minor lines and uses viewport-fixed calendar scr
     assert.ok(script.indexOf('scrollTimeReset: false') !== -1);
     assert.ok(script.indexOf('scheduleInitialTimeSlotScroll') !== -1);
     assert.ok(script.indexOf('timeSlotScrollInitialized') !== -1);
-    assert.ok(script.indexOf('fitInitialTwelveHourWindow') !== -1);
-    assert.ok(script.indexOf('visibleHalfHourSlots = 24') !== -1);
+    assert.ok(script.indexOf('fitInitialTwelveHourWindow') === -1);
     assert.ok(script.indexOf("scrollToTime('09:00:00')") !== -1);
     assert.ok(script.indexOf('scrollTimeSlotsToBottom') === -1);
-    assert.ok(css.indexOf('--ib-time-slot-height') !== -1);
+    assert.ok(/\.fc-timegrid-slot\s*\{\s*height:\s*1\.6em;/m.test(css));
     assert.ok(script.indexOf("slotDuration: '00:30:00'") !== -1);
     assert.ok(script.indexOf("slotMaxTime: '24:00:00'") !== -1);
 });
