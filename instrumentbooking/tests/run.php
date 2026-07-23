@@ -189,6 +189,9 @@ test('ordinary user cannot modify another user booking', function () {
             'end' => '2030-01-01T10:00:00-08:00',
         ]);
     });
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $event) {
+        $h->cancelEvent($c, $pdo, user('bob'), ['eventId' => $event['id']]);
+    });
 });
 
 test('authorized user sees complete details for another user booking', function () {
