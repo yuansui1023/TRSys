@@ -250,8 +250,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $eventType = $this->optionalEventType($input);
             $this->assertCreateAllowed($config, $instrument, $context, $eventType);
 
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input);
+            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input, $eventType);
             $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, null);
+            $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
 
             $now = time();
             $stmt = $pdo->prepare(
@@ -269,7 +270,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 ':instrument_code' => $instrumentCode,
                 ':event_type' => $eventType,
                 ':owner_user' => $context['user'],
-                ':title' => $this->cleanText($this->requireString($input, 'title', 120), 120),
+                ':title' => $internalTitle,
                 ':note' => $this->cleanText(
                     $this->optionalString($input, 'note', 1000),
                     1000,
@@ -326,8 +327,9 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
                 $this->assertInstrumentBookingAccess($instrument, $context);
             }
 
-            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input);
+            [$start, $end, $blockedStart, $blockedEnd] = $this->validatedTimesForInstrument($instrument, $input, $eventType);
             $this->assertNoConflict($pdo, $instrumentCode, $blockedStart, $blockedEnd, $eventId);
+            $internalTitle = $eventType === 'block' ? 'Outage' : 'Booking';
 
             $stmt = $pdo->prepare(
                 'UPDATE events
@@ -345,7 +347,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             $stmt->execute([
                 ':instrument_code' => $instrumentCode,
                 ':event_type' => $eventType,
-                ':title' => $this->cleanText($this->requireString($input, 'title', 120), 120),
+                ':title' => $internalTitle,
                 ':note' => $this->cleanText(
                     $this->optionalString($input, 'note', 1000),
                     1000,
@@ -604,12 +606,16 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         ];
     }
 
-    private function validatedTimesForInstrument(array $instrument, array $input): array
+    private function validatedTimesForInstrument(array $instrument, array $input, string $eventType): array
     {
         $start = $this->parseIsoToTimestamp($this->requireString($input, 'start', 64));
         $end = $this->parseIsoToTimestamp($this->requireString($input, 'end', 64));
         if ($start >= $end) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The end time must be later than the start time.', 400);
+        }
+
+        if ($eventType === 'block') {
+            return [$start, $end, $start, $end];
         }
 
         $durationSeconds = $end - $start;
