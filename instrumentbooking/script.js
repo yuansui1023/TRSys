@@ -77,9 +77,9 @@
         var appBar = el('div', 'ib-app-bar');
         var identity = el('div', 'ib-app-identity');
         var appTitle = el('h1', 'ib-app-title');
-        appTitle.textContent = 'Instrument Booking';
+        appTitle.textContent = 'TRSys';
         var subtitle = el('p', 'ib-app-subtitle');
-        subtitle.textContent = 'Laboratory Equipment Scheduling';
+        subtitle.textContent = 'Tool Reservation System';
         identity.appendChild(appTitle);
         identity.appendChild(subtitle);
         appBar.appendChild(identity);
@@ -88,24 +88,54 @@
         appNav.setAttribute('aria-label', 'Application navigation');
         var wikiLink = el('a', 'ib-app-link');
         wikiLink.href = wikiUrl(state.ajaxUrl);
-        wikiLink.textContent = 'Return to Wiki';
+        wikiLink.textContent = 'Return to Lab Wiki';
         appNav.appendChild(wikiLink);
         appBar.appendChild(appNav);
         shell.appendChild(appBar);
 
         var toolbar = el('div', 'ib-toolbar');
         var controls = el('div', 'ib-toolbar-controls');
-        var selectWrap = el('label', 'ib-field-inline');
-        selectWrap.appendChild(text('Instrument'));
-        var select = el('select', 'ib-instrument-select');
-        select.addEventListener('change', function () {
-            state.selectedInstrument = select.value;
-            if (state.calendar) {
-                state.calendar.refetchEvents();
+        var selectWrap = el('div', 'ib-field-inline');
+        var pickerLabel = el('span', 'ib-instrument-label');
+        pickerLabel.textContent = 'Instrument';
+        selectWrap.appendChild(pickerLabel);
+
+        var picker = el('div', 'ib-instrument-picker');
+        var trigger = button('button', '');
+        trigger.className = 'ib-instrument-trigger';
+        trigger.setAttribute('aria-haspopup', 'listbox');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.setAttribute('aria-controls', 'ib-instrument-menu');
+        trigger.setAttribute('aria-labelledby', 'ib-instrument-label ib-instrument-current');
+        var current = el('span', 'ib-instrument-current');
+        current.id = 'ib-instrument-current';
+        var chevron = el('span', 'ib-instrument-chevron');
+        chevron.setAttribute('aria-hidden', 'true');
+        trigger.appendChild(current);
+        trigger.appendChild(chevron);
+        picker.appendChild(trigger);
+
+        var menu = el('div', 'ib-instrument-menu');
+        menu.id = 'ib-instrument-menu';
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('aria-labelledby', 'ib-instrument-label');
+        menu.hidden = true;
+        picker.appendChild(menu);
+        pickerLabel.id = 'ib-instrument-label';
+        selectWrap.appendChild(picker);
+        controls.appendChild(selectWrap);
+
+        trigger.addEventListener('click', function () {
+            setInstrumentPickerOpen(root, !isInstrumentPickerOpen(root), true);
+        });
+        trigger.addEventListener('keydown', function (event) {
+            handleInstrumentTriggerKeydown(event, root);
+        });
+        document.addEventListener('click', function (event) {
+            if (isInstrumentPickerOpen(root) && !picker.contains(event.target)) {
+                setInstrumentPickerOpen(root, false, false);
             }
         });
-        selectWrap.appendChild(select);
-        controls.appendChild(selectWrap);
 
         toolbar.appendChild(controls);
         shell.appendChild(toolbar);
@@ -122,15 +152,123 @@
     }
 
     function refreshInstrumentSelect(root, state) {
-        var select = root.querySelector('.ib-instrument-select');
-        select.textContent = '';
-        state.instruments.forEach(function (instrument) {
-            var option = document.createElement('option');
-            option.value = instrument.code;
-            option.textContent = instrument.name + (instrument.enabled ? '' : ' (disabled)');
-            select.appendChild(option);
+        var menu = root.querySelector('.ib-instrument-menu');
+        var current = root.querySelector('.ib-instrument-current');
+        menu.textContent = '';
+        state.instruments.forEach(function (instrument, index) {
+            var option = button('button', instrumentLabel(instrument));
+            option.className = 'ib-instrument-option';
+            option.id = 'ib-instrument-option-' + index;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', instrument.code === state.selectedInstrument ? 'true' : 'false');
+            option.setAttribute('data-instrument-code', instrument.code);
+            option.addEventListener('click', function () {
+                selectInstrument(root, state, instrument.code);
+            });
+            option.addEventListener('keydown', function (event) {
+                handleInstrumentOptionKeydown(event, root, state);
+            });
+            menu.appendChild(option);
         });
-        select.value = state.selectedInstrument;
+
+        var selected = findInstrument(state, state.selectedInstrument);
+        current.textContent = selected ? instrumentLabel(selected) : '';
+    }
+
+    function instrumentLabel(instrument) {
+        return instrument.name + (instrument.enabled ? '' : ' (disabled)');
+    }
+
+    function selectInstrument(root, state, instrumentCode) {
+        state.selectedInstrument = instrumentCode;
+        refreshInstrumentSelect(root, state);
+        setInstrumentPickerOpen(root, false, true);
+        if (state.calendar) {
+            state.calendar.refetchEvents();
+        }
+    }
+
+    function isInstrumentPickerOpen(root) {
+        return root.querySelector('.ib-instrument-trigger').getAttribute('aria-expanded') === 'true';
+    }
+
+    function setInstrumentPickerOpen(root, open, returnFocus) {
+        var trigger = root.querySelector('.ib-instrument-trigger');
+        var menu = root.querySelector('.ib-instrument-menu');
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menu.hidden = !open;
+
+        if (open) {
+            var selected = menu.querySelector('[aria-selected="true"]');
+            var first = menu.querySelector('.ib-instrument-option');
+            window.requestAnimationFrame(function () {
+                (selected || first || trigger).focus();
+            });
+        } else if (returnFocus) {
+            trigger.focus();
+        }
+    }
+
+    function handleInstrumentTriggerKeydown(event, root) {
+        if (!['Enter', ' ', 'ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape'].includes(event.key)) {
+            return;
+        }
+        event.preventDefault();
+
+        if (event.key === 'Escape') {
+            setInstrumentPickerOpen(root, false, true);
+            return;
+        }
+
+        setInstrumentPickerOpen(root, true, false);
+        var menu = root.querySelector('.ib-instrument-menu');
+        var options = instrumentOptions(menu);
+        var target = menu.querySelector('[aria-selected="true"]') || options[0];
+        if (event.key === 'ArrowUp' || event.key === 'End') {
+            target = options[options.length - 1];
+        } else if (event.key === 'Home' || event.key === 'ArrowDown') {
+            target = options[0];
+        }
+        if (target) {
+            window.requestAnimationFrame(function () {
+                target.focus();
+            });
+        }
+    }
+
+    function handleInstrumentOptionKeydown(event, root, state) {
+        var option = event.currentTarget;
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            selectInstrument(root, state, option.getAttribute('data-instrument-code'));
+            return;
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            setInstrumentPickerOpen(root, false, true);
+            return;
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            return;
+        }
+
+        event.preventDefault();
+        var options = instrumentOptions(option.parentNode);
+        var index = options.indexOf(option);
+        if (event.key === 'Home') {
+            index = 0;
+        } else if (event.key === 'End') {
+            index = options.length - 1;
+        } else if (event.key === 'ArrowDown') {
+            index = (index + 1) % options.length;
+        } else {
+            index = (index - 1 + options.length) % options.length;
+        }
+        options[index].focus();
+    }
+
+    function instrumentOptions(menu) {
+        return Array.prototype.slice.call(menu.querySelectorAll('.ib-instrument-option'));
     }
 
     function initCalendar(root, state) {
