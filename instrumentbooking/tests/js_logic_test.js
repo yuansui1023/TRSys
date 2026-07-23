@@ -258,5 +258,15 @@ check('top nav order is Settings, Return, instrument selector without a visible 
     assert.ok(returnPos < instrumentPos);
 });
 
+check('calendar navigation is compact and desktop tool selector is four times wider', function () {
+    var stylePath = path.join(__dirname, '..', 'style.css');
+    var css = fs.readFileSync(stylePath, 'utf8');
+    assert.ok(/\.fc-prev-button,[\s\S]*?\.fc-next-button\s*\{\s*width:\s*56px;/m.test(css));
+    assert.ok(/\.fc-today-button\s*\{\s*width:\s*84px;/m.test(css));
+    assert.ok(/\.ib-instrument-select\s*\{[\s\S]*?width:\s*528px;/m.test(css));
+    assert.ok(/\.ib-instrument-select\s*\{[\s\S]*?min-width:\s*528px;/m.test(css));
+    assert.ok(/@media \(max-width: 768px\)[\s\S]*?\.ib-instrument-select\s*\{[\s\S]*?max-width:\s*none;/m.test(css));
+});
+
 console.log('js_logic_test: ' + (failures === 0 ? 'ok' : failures + ' failures'));
 process.exit(failures === 0 ? 0 : 1);
