@@ -15,6 +15,8 @@
             return;
         }
 
+        document.body.classList.add('instrument-booking-page');
+
         loadFullCalendar(root).then(function () {
             boot(root);
         }).catch(function () {
@@ -44,7 +46,9 @@
             instruments: [],
             selectedInstrument: null,
             calendar: null,
-            saving: false
+            saving: false,
+            statusLocked: false,
+            root: root
         };
 
         root.textContent = '';
@@ -70,6 +74,11 @@
         var shell = el('div', 'ib-shell');
 
         var toolbar = el('div', 'ib-toolbar');
+        var title = el('h1', 'ib-title');
+        title.textContent = 'Instrument Booking System';
+        toolbar.appendChild(title);
+
+        var controls = el('div', 'ib-toolbar-controls');
         var selectWrap = el('label', 'ib-field-inline');
         selectWrap.appendChild(text('Instrument'));
         var select = el('select', 'ib-instrument-select');
@@ -80,10 +89,11 @@
             }
         });
         selectWrap.appendChild(select);
-        toolbar.appendChild(selectWrap);
+        controls.appendChild(selectWrap);
 
         var timezone = el('span', 'ib-timezone');
-        toolbar.appendChild(timezone);
+        controls.appendChild(timezone);
+        toolbar.appendChild(controls);
         shell.appendChild(toolbar);
 
         var status = el('div', 'ib-status');
@@ -157,27 +167,31 @@
                     var instrument = findInstrument(state, state.selectedInstrument);
                     var color = instrument ? instrument.color : '#64748b';
                     success((data.events || []).map(function (event) {
+                        var eventColor = event.eventType === 'block' ? '#b45309' : color;
                         return {
                             id: String(event.id),
                             title: event.title,
                             start: event.start,
                             end: event.end,
-                            backgroundColor: event.eventType === 'block' ? '#92400e' : color,
-                            borderColor: event.eventType === 'block' ? '#92400e' : color,
+                            backgroundColor: hexToRgba(eventColor, 0.38),
+                            borderColor: eventColor,
+                            textColor: '#ffffff',
                             extendedProps: {
                                 bookingEvent: event
                             }
                         };
                     }));
                 }).catch(function (err) {
+                    state.statusLocked = true;
                     showStatus(root, err.message || 'Failed to load bookings.', true);
                     failure(err);
                 });
             },
             loading: function (isLoading) {
                 if (isLoading) {
+                    state.statusLocked = false;
                     showStatus(root, 'Loading bookings...', false);
-                } else {
+                } else if (!state.statusLocked) {
                     showStatus(root, '', false);
                 }
             }
@@ -228,7 +242,9 @@
         form.appendChild(message);
 
         var buttons = el('div', 'ib-dialog-buttons');
-        var closeButton = button('button', 'Close');
+        var closeButton = button('button', '×');
+        closeButton.className += ' ib-close';
+        closeButton.setAttribute('aria-label', 'Close');
         closeButton.addEventListener('click', function () {
             overlay.hidden = true;
         });
@@ -302,11 +318,16 @@
         }
 
         setSaving(state, overlay, true);
+        state.statusLocked = false;
+        showStatus(state.root, 'Saving booking...', false);
         api(state, 'POST', isCreate ? 'create' : 'update', payload).then(function () {
             overlay.hidden = true;
             state.calendar.refetchEvents();
+            showTransientStatus(state, 'Booking saved.');
         }).catch(function (err) {
             overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Save failed.';
+            state.statusLocked = true;
+            showStatus(state.root, err.message || 'Save failed.', true);
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -320,11 +341,16 @@
             return;
         }
         setSaving(state, overlay, true);
+        state.statusLocked = false;
+        showStatus(state.root, 'Cancelling booking...', false);
         api(state, 'POST', 'cancel', { eventId: overlay._eventData.id }).then(function () {
             overlay.hidden = true;
             state.calendar.refetchEvents();
+            showTransientStatus(state, 'Booking cancelled.');
         }).catch(function (err) {
             overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Cancel failed.';
+            state.statusLocked = true;
+            showStatus(state.root, err.message || 'Cancel failed.', true);
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -381,6 +407,23 @@
             }
         }
         return null;
+    }
+
+    function hexToRgba(color, alpha) {
+        var value = String(color || '').trim();
+        var match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
+        if (!match) {
+            return 'rgba(100, 116, 139, ' + alpha + ')';
+        }
+        var hex = match[1];
+        if (hex.length === 3) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        return 'rgba('
+            + parseInt(hex.slice(0, 2), 16) + ', '
+            + parseInt(hex.slice(2, 4), 16) + ', '
+            + parseInt(hex.slice(4, 6), 16) + ', '
+            + alpha + ')';
     }
 
     function toDatetimeInput(iso, timezone) {
@@ -478,6 +521,15 @@
         }
         status.textContent = message;
         status.classList.toggle('ib-status-error', !!isError);
+    }
+
+    function showTransientStatus(state, message) {
+        state.statusLocked = true;
+        showStatus(state.root, message, false);
+        window.setTimeout(function () {
+            state.statusLocked = false;
+            showStatus(state.root, '', false);
+        }, 3000);
     }
 
     function showFatal(root, message) {
