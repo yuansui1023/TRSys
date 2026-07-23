@@ -1455,6 +1455,71 @@ test('deleting one instrument leaves other instruments intact', function () {
     assert_true((int)$pdo->query("SELECT COUNT(*) FROM events WHERE instrument_code = 'tem-01'")->fetchColumn() === 1);
 });
 
+test('delete preview reports associated event counts for admins only', function () {
+    [$h, $c, $pdo] = fixture();
+    grant_plugin_admin($pdo, 'manager');
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+    ]));
+    $preview = $h->instrumentDeletionPreview($c, $pdo, plugin_admin('manager'), [
+        'instrumentCode' => 'sem-01',
+    ]);
+    assert_true($preview['instrument']['name'] === 'SEM-01');
+    assert_true($preview['totalEvents'] === 1);
+    assert_true($preview['futureEvents'] === 1);
+    assert_error('ADMIN_REQUIRED', function () use ($h, $c, $pdo) {
+        $h->instrumentDeletionPreview($c, $pdo, user(), [
+            'instrumentCode' => 'sem-01',
+        ]);
+    });
+});
+
+test('delete instrument returns deleted event count and clears only that tool', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'tem-01' => [
+                'name' => 'TEM-01',
+                'description' => 'TEM',
+                'allowed_groups' => ['sem-users'],
+                'min_minutes' => 30,
+                'max_minutes' => 240,
+                'buffer_before_minutes' => 0,
+                'buffer_after_minutes' => 0,
+                'color' => '#2563eb',
+                'enabled' => true,
+            ],
+        ],
+    ]);
+    grant_plugin_admin($pdo, 'manager');
+    set_instrument_rules($pdo, 'sem-01', 240, 0);
+    set_instrument_rules($pdo, 'tem-01', 240, 0);
+    $admin = plugin_admin('manager');
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'sem-01',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
+        'requestId' => '55555555-5555-4555-8555-555555555555',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'instrumentCode' => 'tem-01',
+        'start' => '2030-01-01T11:00:00-08:00',
+        'end' => '2030-01-01T12:00:00-08:00',
+        'requestId' => '66666666-6666-4666-8666-666666666666',
+    ]));
+    $result = $h->deleteInstrument($c, $pdo, $admin, [
+        'instrumentCode' => 'sem-01',
+        'confirmName' => 'SEM-01',
+    ]);
+    assert_true($result['deleted'] === true);
+    assert_true($result['deletedEvents'] === 1);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM instruments WHERE code = 'sem-01'")->fetchColumn() === 0);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM events WHERE instrument_code = 'sem-01'")->fetchColumn() === 0);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM instruments WHERE code = 'tem-01'")->fetchColumn() === 1);
+    assert_true((int)$pdo->query("SELECT COUNT(*) FROM events WHERE instrument_code = 'tem-01'")->fetchColumn() === 1);
+});
+
 test('cli revoke removes non final admin and blocks last admin', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
@@ -1922,5 +1987,17 @@ foreach ($tests as [$name, $fn]) {
     }
 }
 
-echo count($tests) . " tests, " . $failures . " failures\n";
+$jsTest = __DIR__ . '/js_logic_test.js';
+if (is_file($jsTest)) {
+    $jsCommand = 'node ' . escapeshellarg($jsTest);
+    passthru($jsCommand, $jsExitCode);
+    if ($jsExitCode !== 0) {
+        $failures++;
+        echo "[FAIL] js_logic_test.js\n";
+    } else {
+        echo "[PASS] js_logic_test.js\n";
+    }
+}
+
+echo count($tests) . " php tests, " . $failures . " failures\n";
 exit($failures === 0 ? 0 : 1);

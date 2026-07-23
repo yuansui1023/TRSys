@@ -53,14 +53,17 @@
             weekNowLineFrame: null,
             weekNowLineResizeHandler: null,
             weekNowLinePageHideHandler: null,
+            weekViewStart: null,
+            weekViewEnd: null,
             updatedTimestamp: Number(root.getAttribute('data-updated-timestamp') || '') || 0,
             updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
         };
 
         root.textContent = '';
+        removeDeleteConfirmPortals();
         root.appendChild(buildShell(state));
-        root.appendChild(buildDeleteConfirmDialog(state, root.querySelector('.ib-settings-overlay')));
+        mountDeleteConfirmDialog(state);
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
@@ -185,9 +188,10 @@
             timeZone: state.timezone,
             selectable: true,
             editable: false,
-            nowIndicator: true,
+            nowIndicator: false,
             allDaySlot: false,
             height: 'auto',
+            contentHeight: 'auto',
             slotMinTime: '00:00:00',
             slotMaxTime: '24:00:00',
             slotDuration: '00:30:00',
@@ -212,6 +216,8 @@
                 today: 'Today'
             },
             datesSet: function (info) {
+                state.weekViewStart = info.startStr;
+                state.weekViewEnd = info.endStr;
                 updateWeekTitle(calendarEl, formatWeekTitle(info.startStr, info.endStr, state.timezone));
                 scheduleWeekNowLines(root, state);
             },
@@ -394,36 +400,113 @@
     function syncWeekNowLines(root, state) {
         clearWeekNowLines(root);
         var calendarEl = root.querySelector('.ib-calendar');
+        if (!calendarEl || !state.timezone) {
+            return;
+        }
+        var viewStart = state.weekViewStart;
+        var viewEnd = state.weekViewEnd;
+        if (!viewStart || !viewEnd) {
+            return;
+        }
+        var mode = classifyWeekNowLineMode(viewStart, viewEnd, new Date(), state.timezone);
+        if (mode === 'none') {
+            return;
+        }
+
+        var lineTop = computeNowLineTopPx(calendarEl, state.timezone);
+        if (lineTop === null) {
+            return;
+        }
+
         var todayKey = zonedDateKey(new Date(), state.timezone);
         var columns = Array.prototype.slice.call(
             calendarEl.querySelectorAll('.fc-timegrid-col[data-date]')
         );
-        var todayColumn = columns.find(function (column) {
-            return column.getAttribute('data-date') === todayKey;
-        });
-        var defaultLine = calendarEl.querySelector('.fc-timegrid-now-indicator-line');
-        if (!todayColumn || !defaultLine) {
-            return;
-        }
-
-        var todayFrame = todayColumn.querySelector('.fc-timegrid-col-frame');
-        if (!todayFrame) {
-            return;
-        }
-        var lineTop = defaultLine.getBoundingClientRect().top - todayFrame.getBoundingClientRect().top;
-
         columns.forEach(function (column) {
             var frame = column.querySelector('.fc-timegrid-col-frame');
             if (!frame) {
                 return;
             }
             var line = el('div', 'ib-week-now-line');
-            var isToday = column === todayColumn;
+            var isToday = mode === 'current' && column.getAttribute('data-date') === todayKey;
             line.classList.add(isToday ? 'ib-week-now-line-today' : 'ib-week-now-line-dim');
             line.style.top = lineTop + 'px';
             line.setAttribute('aria-hidden', 'true');
             frame.appendChild(line);
         });
+    }
+
+    function computeNowLineTopPx(calendarEl, timezone) {
+        var slots = calendarEl.querySelector('.fc-timegrid-slots');
+        if (!slots) {
+            return null;
+        }
+        var height = slots.getBoundingClientRect().height;
+        if (!(height > 0)) {
+            return null;
+        }
+        var parts = zonedParts(new Date(), timezone);
+        var minutes = (Number(parts.hour) * 60)
+            + Number(parts.minute)
+            + (Number(parts.second) / 60);
+        return (minutes / (24 * 60)) * height;
+    }
+
+    function classifyWeekNowLineMode(viewStartStr, viewEndStr, now, timezone) {
+        var viewStart = civilDateParts(viewStartStr, timezone);
+        var viewEndExclusive = civilDateParts(viewEndStr, timezone);
+        var todayKey = zonedDateKey(now, timezone);
+        var today = civilDateParts(todayKey + 'T12:00:00', timezone);
+        var todayNumber = civilDateNumber(today);
+        var startNumber = civilDateNumber(viewStart);
+        var endNumber = civilDateNumber(viewEndExclusive);
+
+        if (todayNumber >= startNumber && todayNumber < endNumber) {
+            return 'current';
+        }
+
+        var daySpan = civilDayDiff(viewStart, viewEndExclusive);
+        if (daySpan <= 0) {
+            return 'none';
+        }
+
+        var alignWeekday = civilWeekday(viewStart);
+        var todayWeekday = civilWeekday(today);
+        var delta = (todayWeekday - alignWeekday + 7) % 7;
+        var currentWeekStart = addCivilDays(today, -delta);
+        var nextWeekStart = addCivilDays(currentWeekStart, daySpan);
+        var nextWeekEnd = addCivilDays(nextWeekStart, daySpan);
+
+        if (
+            civilDateNumber(viewStart) === civilDateNumber(nextWeekStart)
+            && civilDateNumber(viewEndExclusive) === civilDateNumber(nextWeekEnd)
+        ) {
+            return 'next';
+        }
+        return 'none';
+    }
+
+    function civilDateNumber(parts) {
+        return (parts.year * 10000) + (parts.month * 100) + parts.day;
+    }
+
+    function civilWeekday(parts) {
+        return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
+    }
+
+    function civilDayDiff(start, endExclusive) {
+        var startUtc = Date.UTC(start.year, start.month - 1, start.day);
+        var endUtc = Date.UTC(endExclusive.year, endExclusive.month - 1, endExclusive.day);
+        return Math.round((endUtc - startUtc) / 86400000);
+    }
+
+    function addCivilDays(parts, days) {
+        var date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
+        return {
+            year: date.getUTCFullYear(),
+            month: date.getUTCMonth() + 1,
+            day: date.getUTCDate()
+        };
     }
 
     function clearWeekNowLines(root) {
@@ -678,7 +761,7 @@
 
         overlay.addEventListener('keydown', function (event) {
             if (event.key === 'Escape' && !state.saving) {
-                var confirm = state.root.querySelector('.ib-delete-confirm');
+                var confirm = findDeleteConfirmOverlay();
                 if (confirm && !confirm.hidden) {
                     confirm.hidden = true;
                     return;
@@ -690,8 +773,27 @@
         return overlay;
     }
 
+    function removeDeleteConfirmPortals() {
+        document.querySelectorAll('.ib-delete-confirm-portal').forEach(function (node) {
+            node.remove();
+        });
+    }
+
+    function findDeleteConfirmOverlay() {
+        return document.querySelector('.ib-delete-confirm-overlay');
+    }
+
+    function mountDeleteConfirmDialog(state) {
+        removeDeleteConfirmPortals();
+        var portal = el('div', 'instrument-booking-app ib-portal ib-delete-confirm-portal');
+        portal.setAttribute('data-theme', 'midnight-lab');
+        var settingsOverlay = state.root.querySelector('.ib-settings-overlay');
+        portal.appendChild(buildDeleteConfirmDialog(state, settingsOverlay));
+        document.body.appendChild(portal);
+    }
+
     function buildDeleteConfirmDialog(state, settingsOverlay) {
-        var confirm = el('div', 'ib-dialog-overlay ib-delete-confirm');
+        var confirm = el('div', 'ib-dialog-overlay ib-delete-confirm-overlay');
         confirm.hidden = true;
         var dialog = el('div', 'ib-dialog ib-delete-confirm-dialog');
         dialog.setAttribute('role', 'dialog');
@@ -711,6 +813,7 @@
         cancel.addEventListener('click', function () {
             if (!state.saving) {
                 confirm.hidden = true;
+                setDeleteMessage(confirm, '', false);
             }
         });
         var destroy = button('button', 'Delete permanently');
@@ -725,8 +828,9 @@
         confirm.appendChild(dialog);
 
         confirm.querySelector('[name="confirmName"]').addEventListener('input', function () {
-            var expected = confirm._expectedName || '';
-            destroy.disabled = getValue(confirm, 'confirmName') !== expected || state.saving;
+            if (!state.saving) {
+                setDeleteMessage(confirm, '', false);
+            }
         });
         return confirm;
     }
@@ -955,14 +1059,18 @@
         actions.className = 'ib-tool-actions';
         if (instrument) {
             var save = button('button', 'Save');
+            save.type = 'button';
             save.addEventListener('click', function (event) {
                 event.preventDefault();
+                event.stopPropagation();
                 submitToolRow(state, overlay, row, false);
             });
             var del = button('button', 'Delete');
+            del.type = 'button';
             del.className += ' ib-danger';
             del.addEventListener('click', function (event) {
                 event.preventDefault();
+                event.stopPropagation();
                 openDeleteConfirm(state, overlay, {
                     code: instrument.code,
                     name: getRowValue(row, 'name') || instrument.name
@@ -1081,7 +1189,11 @@
     }
 
     function openDeleteConfirm(state, settingsOverlay, instrument) {
-        var confirm = state.root.querySelector('.ib-delete-confirm');
+        var confirm = findDeleteConfirmOverlay();
+        if (!confirm) {
+            mountDeleteConfirmDialog(state);
+            confirm = findDeleteConfirmOverlay();
+        }
         if (!confirm) {
             setSettingsMessage(settingsOverlay, 'Unable to open the delete confirmation dialog.', true);
             return;
@@ -1091,6 +1203,7 @@
         confirm._instrumentCode = instrument.code;
         confirm._expectedName = instrument.name;
         setValue(confirm, 'confirmName', '');
+        setDeleteBusy(confirm, false);
         var destroyButton = confirm.querySelector('.ib-danger');
         if (destroyButton) {
             destroyButton.disabled = true;
@@ -1114,9 +1227,16 @@
             summary.appendChild(totals);
             confirm._expectedName = data.instrument.name;
             confirm.querySelector('[name="confirmName"]').placeholder = 'Type “' + data.instrument.name + '” to confirm';
+            if (destroyButton) {
+                destroyButton.disabled = !!state.saving;
+            }
             setDeleteMessage(confirm, '', false);
+            confirm.querySelector('[name="confirmName"]').focus();
         }).catch(function (err) {
             setDeleteMessage(confirm, err.message || 'Unable to load deletion details.', true);
+            if (destroyButton) {
+                destroyButton.disabled = true;
+            }
         });
     }
 
@@ -1124,13 +1244,21 @@
         if (state.saving) {
             return;
         }
+        var expected = confirm._expectedName || '';
+        var typed = getValue(confirm, 'confirmName');
+        if (typed !== expected) {
+            setDeleteMessage(confirm, 'The confirmation name does not match the tool name.', true);
+            return;
+        }
         state.saving = true;
+        setDeleteBusy(confirm, true);
         setDeleteMessage(confirm, 'Deleting tool...', false);
         api(state, 'POST', 'admin/instrument/delete', {
             instrumentCode: confirm._instrumentCode,
-            confirmName: getValue(confirm, 'confirmName')
+            confirmName: typed
         }).then(function () {
             confirm.hidden = true;
+            setDeleteMessage(confirm, '', false);
             return refreshInstrumentData(state);
         }).then(function () {
             return api(state, 'GET', 'admin/instruments', {});
@@ -1140,10 +1268,16 @@
             setSettingsMessage(settingsOverlay, 'Tool deleted.', false);
         }).catch(function (err) {
             setDeleteMessage(confirm, err.message || 'Unable to delete tool.', true);
+            setSettingsMessage(settingsOverlay, err.message || 'Unable to delete tool.', true);
         }).finally(function () {
             state.saving = false;
-            var expected = confirm._expectedName || '';
-            confirm.querySelector('.ib-danger').disabled = getValue(confirm, 'confirmName') !== expected;
+            setDeleteBusy(confirm, false);
+        });
+    }
+
+    function setDeleteBusy(confirm, busy) {
+        confirm.querySelectorAll('button, input').forEach(function (control) {
+            control.disabled = !!busy;
         });
     }
 
