@@ -82,6 +82,11 @@ function uuid_for_test(): string
     return sprintf('00000000-0000-4000-8000-%012d', $i++);
 }
 
+function la_timestamp(string $localTime): int
+{
+    return (new DateTimeImmutable($localTime, new DateTimeZone('America/Los_Angeles')))->getTimestamp();
+}
+
 function assert_true(bool $condition, string $message = 'Assertion failed'): void
 {
     if (!$condition) {
@@ -109,9 +114,9 @@ test('09:00-10:00 and 10:00-11:00 do not conflict', function () {
     ]));
 });
 
-test('09:00-10:01 and 10:00-11:00 conflict', function () {
+test('09:00-10:30 and 10:00-11:00 conflict', function () {
     [$h, $c, $pdo] = fixture();
-    $h->createEvent($c, $pdo, user(), booking(['end' => '2030-01-01T10:01:00-08:00']));
+    $h->createEvent($c, $pdo, user(), booking(['end' => '2030-01-01T10:30:00-08:00']));
     assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
         $h->createEvent($c, $pdo, user(), booking([
             'start' => '2030-01-01T10:00:00-08:00',
@@ -132,7 +137,7 @@ test('buffer overlap conflicts', function () {
     [$h, $c, $pdo] = fixture(['instruments' => ['sem-01' => ['buffer_after_minutes' => 10]]]);
     $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T10:00:00-08:00']));
     assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T10:05:00-08:00', 'end' => '2030-01-01T11:05:00-08:00']));
+        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T10:00:00-08:00', 'end' => '2030-01-01T11:00:00-08:00']));
     });
 });
 
@@ -238,7 +243,7 @@ test('manager can create block', function () {
     $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
-        'end' => '2030-01-01T09:05:00-08:00',
+        'end' => '2030-01-01T09:30:00-08:00',
     ]))['event'];
     assert_true($event['eventType'] === 'block');
     assert_true($event['title'] === 'Outage');
@@ -279,7 +284,7 @@ test('outage still conflicts with existing booking', function () {
         $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
             'eventType' => 'block',
             'start' => '2030-01-01T09:30:00-08:00',
-            'end' => '2030-01-01T09:35:00-08:00',
+            'end' => '2030-01-01T10:00:00-08:00',
         ]));
     });
 });
@@ -290,13 +295,13 @@ test('outage still conflicts with existing outage', function () {
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
-        'end' => '2030-01-01T09:10:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
     ]));
     assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo, $manager) {
         $h->createEvent($c, $pdo, $manager, booking([
             'eventType' => 'block',
-            'start' => '2030-01-01T09:05:00-08:00',
-            'end' => '2030-01-01T09:15:00-08:00',
+            'start' => '2030-01-01T09:30:00-08:00',
+            'end' => '2030-01-01T10:30:00-08:00',
         ]));
     });
 });
@@ -314,12 +319,12 @@ test('adjacent outages do not apply booking buffers', function () {
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
         'start' => '2030-01-01T09:00:00-08:00',
-        'end' => '2030-01-01T09:05:00-08:00',
+        'end' => '2030-01-01T09:30:00-08:00',
     ]));
     $h->createEvent($c, $pdo, $manager, booking([
         'eventType' => 'block',
-        'start' => '2030-01-01T09:05:00-08:00',
-        'end' => '2030-01-01T09:10:00-08:00',
+        'start' => '2030-01-01T09:30:00-08:00',
+        'end' => '2030-01-01T10:00:00-08:00',
     ]));
 });
 
@@ -392,10 +397,184 @@ test('booking over max duration is rejected', function () {
 });
 
 test('booking under min duration is rejected', function () {
+    [$h, $c, $pdo] = fixture(['instruments' => ['sem-01' => ['min_minutes' => 60]]]);
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T09:30:00-08:00']));
+    });
+});
+
+test('strict next booking slot follows Los Angeles half-hour boundaries', function () {
+    [$h] = fixture();
+    assert_true(
+        $h->nextBookableSlotTimestamp('America/Los_Angeles', la_timestamp('2030-01-01 02:59:00'))
+            === la_timestamp('2030-01-01 03:00:00'),
+        '02:59 should advance to 03:00'
+    );
+    assert_true(
+        $h->nextBookableSlotTimestamp('America/Los_Angeles', la_timestamp('2030-01-01 03:00:00'))
+            === la_timestamp('2030-01-01 03:30:00'),
+        '03:00 should advance to 03:30'
+    );
+    assert_true(
+        $h->nextBookableSlotTimestamp('America/Los_Angeles', la_timestamp('2030-01-01 03:29:00'))
+            === la_timestamp('2030-01-01 03:30:00'),
+        '03:29 should advance to 03:30'
+    );
+    assert_true(
+        $h->nextBookableSlotTimestamp('America/Los_Angeles', la_timestamp('2030-01-01 03:30:00'))
+            === la_timestamp('2030-01-01 04:00:00'),
+        '03:30 should advance to 04:00'
+    );
+});
+
+test('02:59 allows a booking from 03:00', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-01-01T03:00:00-08:00',
+            'end' => '2030-01-01T03:30:00-08:00',
+        ]),
+        null,
+        la_timestamp('2030-01-01 02:59:00')
+    )['event'];
+    assert_true($event['id'] > 0);
+});
+
+test('03:00 rejects a booking from 03:00', function () {
     [$h, $c, $pdo] = fixture();
     assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T09:15:00-08:00']));
+        $h->createEvent(
+            $c,
+            $pdo,
+            user(),
+            booking([
+                'start' => '2030-01-01T03:00:00-08:00',
+                'end' => '2030-01-01T03:30:00-08:00',
+            ]),
+            null,
+            la_timestamp('2030-01-01 03:00:00')
+        );
     });
+});
+
+test('03:00 allows a booking from 03:30', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-01-01T03:30:00-08:00',
+            'end' => '2030-01-01T04:00:00-08:00',
+        ]),
+        null,
+        la_timestamp('2030-01-01 03:00:00')
+    )['event'];
+    assert_true($event['id'] > 0);
+});
+
+test('03:29 allows a booking from 03:30', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-01-01T03:30:00-08:00',
+            'end' => '2030-01-01T04:00:00-08:00',
+        ]),
+        null,
+        la_timestamp('2030-01-01 03:29:00')
+    )['event'];
+    assert_true($event['id'] > 0);
+});
+
+test('03:30 rejects a booking from 03:30', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
+        $h->createEvent(
+            $c,
+            $pdo,
+            user(),
+            booking([
+                'start' => '2030-01-01T03:30:00-08:00',
+                'end' => '2030-01-01T04:00:00-08:00',
+            ]),
+            null,
+            la_timestamp('2030-01-01 03:30:00')
+        );
+    });
+});
+
+test('off-slot start and end times are rejected', function () {
+    [$h, $c, $pdo] = fixture();
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T03:15:00-08:00',
+            'end' => '2030-01-01T04:00:00-08:00',
+        ]));
+    });
+    assert_error('INVALID_INPUT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T03:00:00-08:00',
+            'end' => '2030-01-01T03:45:00-08:00',
+        ]));
+    });
+});
+
+test('30, 60, 90, and 120 minute bookings are accepted', function () {
+    foreach ([30, 60, 90, 120] as $duration) {
+        [$h, $c, $pdo] = fixture();
+        $event = $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T09:00:00-08:00',
+            'end' => (new DateTimeImmutable('2030-01-01T09:00:00-08:00'))
+                ->modify('+' . $duration . ' minutes')
+                ->format(DateTimeInterface::ATOM),
+        ]))['event'];
+        assert_true($event['id'] > 0, 'Expected ' . $duration . '-minute booking to be accepted');
+    }
+});
+
+test('editing uses the strict next booking slot', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent(
+        $c,
+        $pdo,
+        user(),
+        booking([
+            'start' => '2030-01-01T03:00:00-08:00',
+            'end' => '2030-01-01T03:30:00-08:00',
+        ]),
+        null,
+        la_timestamp('2030-01-01 02:00:00')
+    )['event'];
+    $payload = [
+        'eventId' => $event['id'],
+        'instrumentCode' => 'sem-01',
+        'eventType' => 'booking',
+        'note' => '',
+        'start' => '2030-01-01T03:00:00-08:00',
+        'end' => '2030-01-01T03:30:00-08:00',
+    ];
+    $h->updateEvent($c, $pdo, user(), $payload, null, la_timestamp('2030-01-01 02:59:00'));
+    assert_error('EVENT_NOT_EDITABLE', function () use ($h, $c, $pdo, $payload) {
+        $h->updateEvent($c, $pdo, user(), $payload, null, la_timestamp('2030-01-01 03:00:00'));
+    });
+});
+
+test('next booking slot crosses DST spring-forward correctly', function () {
+    [$h] = fixture();
+    $next = $h->nextBookableSlotTimestamp(
+        'America/Los_Angeles',
+        (new DateTimeImmutable('2030-03-10T01:59:00-08:00'))->getTimestamp()
+    );
+    $formatted = (new DateTimeImmutable('@' . $next))
+        ->setTimezone(new DateTimeZone('America/Los_Angeles'))
+        ->format(DateTimeInterface::ATOM);
+    assert_true($formatted === '2030-03-10T03:00:00-07:00', 'Expected DST-aware 03:00 PDT slot');
 });
 
 test('DST transition with explicit offsets is accepted', function () {

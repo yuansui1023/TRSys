@@ -146,6 +146,9 @@
             height: 'auto',
             slotMinTime: '00:00:00',
             slotMaxTime: '24:00:00',
+            slotDuration: '00:30:00',
+            snapDuration: '00:30:00',
+            slotLabelInterval: '01:00:00',
             slotLabelFormat: {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -228,25 +231,48 @@
     function renderCalendarEvent(info) {
         var eventData = info.event.extendedProps.bookingEvent;
         var container = el('div', 'ib-event-content');
-        var time = el('div', 'ib-event-time');
-        time.textContent = info.timeText.replace(/\s*-\s*/, '–');
-        container.appendChild(time);
+        var displayTime = info.timeText.replace(/\s*-\s*/, '–');
+        var isCompact = info.event.start && info.event.end
+            && info.event.end.getTime() - info.event.start.getTime() <= 1800000;
 
-        var main = el('div', 'ib-event-main');
-        var owner = el('span', 'ib-event-owner');
-        owner.textContent = eventData.ownerUser;
-        main.appendChild(owner);
-        container.appendChild(main);
+        if (isCompact) {
+            container.classList.add('ib-event-content-compact');
+            var compact = el('div', 'ib-event-compact');
+            var compactTime = el('span', 'ib-event-time');
+            compactTime.textContent = displayTime.split('–')[0];
+            compact.appendChild(compactTime);
+            compact.appendChild(document.createTextNode(' · '));
+            var compactOwner = el('span', 'ib-event-owner');
+            compactOwner.textContent = eventData.ownerUser;
+            compact.appendChild(compactOwner);
+            if (eventData.note) {
+                compact.appendChild(document.createTextNode(' · '));
+                var compactNote = el('span', 'ib-event-note');
+                compactNote.textContent = eventData.note;
+                compact.appendChild(compactNote);
+            }
+            container.appendChild(compact);
+        } else {
+            var time = el('div', 'ib-event-time');
+            time.textContent = displayTime;
+            container.appendChild(time);
 
-        if (eventData.note) {
-            var note = el('div', 'ib-event-note');
-            note.textContent = eventData.note;
-            container.appendChild(note);
+            var main = el('div', 'ib-event-main');
+            var owner = el('span', 'ib-event-owner');
+            owner.textContent = eventData.ownerUser;
+            main.appendChild(owner);
+            container.appendChild(main);
+
+            if (eventData.note) {
+                var note = el('div', 'ib-event-note');
+                note.textContent = eventData.note;
+                container.appendChild(note);
+            }
         }
 
         container.title = [
             'User: ' + eventData.ownerUser,
-            info.timeText,
+            displayTime,
             eventData.note ? 'Note: ' + eventData.note : ''
         ].filter(Boolean).join('\n');
 
@@ -380,7 +406,7 @@
         } else if (!isCreate && !canEdit) {
             setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner or an administrator can modify this event.', false);
         } else {
-            setDialogMessage(overlay, 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.', false);
+            setDialogMessage(overlay, '', false);
         }
         overlay.hidden = false;
     }
@@ -392,6 +418,9 @@
         var eventData = overlay._eventData;
         var isCreate = eventData.mode === 'create';
         setDialogMessage(overlay, '', false);
+        if (!validateDialogTimes(state, overlay)) {
+            return;
+        }
         var payload = {
             instrumentCode: state.selectedInstrument,
             start: fromDatetimeInput(getValue(overlay, 'start'), state.timezone),
@@ -542,6 +571,47 @@
         node.classList.toggle('is-error', !!isError);
     }
 
+    function validateDialogTimes(state, overlay) {
+        var startValue = getValue(overlay, 'start');
+        var endValue = getValue(overlay, 'end');
+        var slotPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:(?:00|30)$/;
+        var startIso = fromDatetimeInput(startValue, state.timezone);
+        var endIso = fromDatetimeInput(endValue, state.timezone);
+        var startTime = Date.parse(startIso);
+        var endTime = Date.parse(endIso);
+
+        if (
+            !slotPattern.test(startValue)
+            || !slotPattern.test(endValue)
+            || !Number.isFinite(startTime)
+            || !Number.isFinite(endTime)
+            || (endTime - startTime) % 1800000 !== 0
+        ) {
+            setDialogMessage(overlay, 'Start and end times must use 30-minute intervals.', true);
+            return false;
+        }
+
+        var earliest = nextBookableSlotTime();
+        if (startTime < earliest) {
+            setDialogMessage(
+                overlay,
+                'The earliest available start time is ' + formatTimeInTimezone(earliest, state.timezone) + '.',
+                true
+            );
+            return false;
+        }
+        return true;
+    }
+
+    function nextBookableSlotTime() {
+        return (Math.floor(Date.now() / 1800000) + 1) * 1800000;
+    }
+
+    function formatTimeInTimezone(timestamp, timezone) {
+        var parts = zonedParts(new Date(timestamp), timezone);
+        return parts.hour + ':' + parts.minute;
+    }
+
     function ensureExplicitOffset(value, timezone) {
         if (/(Z|[+-]\d{2}:\d{2})$/i.test(value)) {
             return value;
@@ -631,6 +701,9 @@
         input.type = type;
         input.maxLength = maxLength;
         input.required = true;
+        if (type === 'datetime-local') {
+            input.step = 1800;
+        }
         wrap.appendChild(input);
         return wrap;
     }
