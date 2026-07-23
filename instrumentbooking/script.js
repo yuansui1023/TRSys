@@ -172,7 +172,6 @@
                     instrumentCode: state.selectedInstrument,
                     start: ensureExplicitOffset(selection.startStr, state.timezone),
                     end: ensureExplicitOffset(selection.endStr, state.timezone),
-                    title: '',
                     note: '',
                     eventType: 'booking',
                     canEdit: true,
@@ -196,7 +195,7 @@
                         var isOutage = event.eventType === 'block';
                         return {
                             id: String(event.id),
-                            title: event.title,
+                            title: '',
                             start: event.start,
                             end: event.end,
                             backgroundColor: isOutage ? 'rgba(239, 68, 68, 0.26)' : 'rgba(59, 130, 246, 0.26)',
@@ -228,17 +227,12 @@
 
     function renderCalendarEvent(info) {
         var eventData = info.event.extendedProps.bookingEvent;
-        var isOutage = eventData.eventType === 'block';
         var container = el('div', 'ib-event-content');
         var time = el('div', 'ib-event-time');
         time.textContent = info.timeText.replace(/\s*-\s*/, '–');
         container.appendChild(time);
 
         var main = el('div', 'ib-event-main');
-        var primary = el('span', isOutage ? 'ib-event-type' : 'ib-event-title');
-        primary.textContent = isOutage ? 'OUTAGE' : eventData.title;
-        main.appendChild(primary);
-        main.appendChild(document.createTextNode(' · '));
         var owner = el('span', 'ib-event-owner');
         owner.textContent = eventData.ownerUser;
         main.appendChild(owner);
@@ -251,8 +245,6 @@
         }
 
         container.title = [
-            isOutage ? 'OUTAGE: ' + eventData.title : eventData.title,
-            'Type: ' + (isOutage ? 'Outage' : 'Booking'),
             'User: ' + eventData.ownerUser,
             info.timeText,
             eventData.note ? 'Note: ' + eventData.note : ''
@@ -269,11 +261,20 @@
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
 
+        var closeButton = button('button', '×');
+        closeButton.className += ' ib-dialog-close';
+        closeButton.setAttribute('aria-label', 'Close');
+        closeButton.addEventListener('click', function () {
+            if (!state.saving) {
+                overlay.hidden = true;
+            }
+        });
+        dialog.appendChild(closeButton);
+
         var heading = el('h3', 'ib-dialog-title');
         dialog.appendChild(heading);
 
         var form = el('form', 'ib-form');
-        form.appendChild(field('title', 'Title', 'text', 120));
         form.appendChild(field('start', 'Start time', 'datetime-local', 64));
         form.appendChild(field('end', 'End time', 'datetime-local', 64));
 
@@ -317,17 +318,10 @@
         form.appendChild(message);
 
         var buttons = el('div', 'ib-dialog-buttons');
-        var closeButton = button('button', '×');
-        closeButton.className += ' ib-close';
-        closeButton.setAttribute('aria-label', 'Close');
-        closeButton.addEventListener('click', function () {
-            overlay.hidden = true;
-        });
         var cancelButton = button('button', 'Cancel booking');
         cancelButton.className += ' ib-danger';
         var submitButton = button('submit', 'Save');
         buttons.appendChild(cancelButton);
-        buttons.appendChild(closeButton);
         buttons.appendChild(submitButton);
         form.appendChild(buttons);
 
@@ -337,6 +331,11 @@
         });
         cancelButton.addEventListener('click', function () {
             cancelEvent(state, overlay);
+        });
+        overlay.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && !state.saving) {
+                overlay.hidden = true;
+            }
         });
 
         dialog.appendChild(form);
@@ -352,7 +351,6 @@
         var title = overlay.querySelector('.ib-dialog-title');
         title.textContent = isCreate ? 'Create booking' : (canEdit ? 'Edit booking' : 'View reservation');
 
-        setValue(overlay, 'title', eventData.title || '');
         setValue(overlay, 'start', toDatetimeInput(eventData.start, state.timezone));
         setValue(overlay, 'end', toDatetimeInput(eventData.end, state.timezone));
         setValue(overlay, 'eventType', eventData.eventType || 'booking');
@@ -372,18 +370,17 @@
         typeBadge.classList.toggle('ib-event-type-booking', eventData.eventType !== 'block');
         overlay.querySelector('.ib-event-owner-value').textContent = eventData.ownerUser || '';
 
-        overlay.querySelector('[name="title"]').disabled = !canEdit;
         overlay.querySelector('[name="start"]').disabled = !canEdit;
         overlay.querySelector('[name="end"]').disabled = !canEdit;
         overlay.querySelector('[name="note"]').disabled = !canEdit;
         overlay.querySelector('[type="submit"]').hidden = !canEdit;
         overlay.querySelector('.ib-danger').hidden = !(eventData.canCancel && !isCreate);
         if (!isCreate && eventData.eventType === 'block') {
-            overlay.querySelector('.ib-dialog-message').textContent = 'This is an equipment outage. Only an administrator can modify it.';
+            setDialogMessage(overlay, 'This is an equipment outage. Only an administrator can modify it.', false);
         } else if (!isCreate && !canEdit) {
-            overlay.querySelector('.ib-dialog-message').textContent = 'You can view the complete reservation details. Only the owner or an administrator can modify this event.';
+            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner or an administrator can modify this event.', false);
         } else {
-            overlay.querySelector('.ib-dialog-message').textContent = 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.';
+            setDialogMessage(overlay, 'Times are entered in the lab timezone. Conflicts and permissions are checked again before saving.', false);
         }
         overlay.hidden = false;
     }
@@ -394,9 +391,9 @@
         }
         var eventData = overlay._eventData;
         var isCreate = eventData.mode === 'create';
+        setDialogMessage(overlay, '', false);
         var payload = {
             instrumentCode: state.selectedInstrument,
-            title: getValue(overlay, 'title'),
             start: fromDatetimeInput(getValue(overlay, 'start'), state.timezone),
             end: fromDatetimeInput(getValue(overlay, 'end'), state.timezone),
             eventType: isCreate
@@ -411,16 +408,12 @@
         }
 
         setSaving(state, overlay, true);
-        state.statusLocked = false;
-        showStatus(state.root, 'Saving booking...', false);
         api(state, 'POST', isCreate ? 'create' : 'update', payload).then(function () {
             overlay.hidden = true;
             state.calendar.refetchEvents();
             showTransientStatus(state, 'Booking saved.');
         }).catch(function (err) {
-            overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Save failed.';
-            state.statusLocked = true;
-            showStatus(state.root, err.message || 'Save failed.', true);
+            setDialogMessage(overlay, err.message || 'Save failed.', true);
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -433,17 +426,14 @@
         if (!window.confirm('Cancel this booking?')) {
             return;
         }
+        setDialogMessage(overlay, '', false);
         setSaving(state, overlay, true);
-        state.statusLocked = false;
-        showStatus(state.root, 'Cancelling booking...', false);
         api(state, 'POST', 'cancel', { eventId: overlay._eventData.id }).then(function () {
             overlay.hidden = true;
             state.calendar.refetchEvents();
             showTransientStatus(state, 'Booking cancelled.');
         }).catch(function (err) {
-            overlay.querySelector('.ib-dialog-message').textContent = err.message || 'Cancel failed.';
-            state.statusLocked = true;
-            showStatus(state.root, err.message || 'Cancel failed.', true);
+            setDialogMessage(overlay, err.message || 'Cancel failed.', true);
         }).finally(function () {
             setSaving(state, overlay, false);
         });
@@ -544,6 +534,12 @@
             btn.disabled = saving;
         });
         overlay.querySelector('[type="submit"]').textContent = saving ? 'Saving...' : 'Save';
+    }
+
+    function setDialogMessage(overlay, message, isError) {
+        var node = overlay.querySelector('.ib-dialog-message');
+        node.textContent = message;
+        node.classList.toggle('is-error', !!isError);
     }
 
     function ensureExplicitOffset(value, timezone) {

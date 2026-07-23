@@ -60,7 +60,6 @@ function booking(array $extra = []): array
     return array_replace([
         'instrumentCode' => 'sem-01',
         'eventType' => 'booking',
-        'title' => 'Test booking',
         'note' => '',
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
@@ -156,7 +155,7 @@ test('update excludes current event from conflict check', function () {
         'start' => '2030-01-01T09:00:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
     ]);
-    assert_true($updated['event']['title'] === 'Updated');
+    assert_true($updated['event']['title'] === 'Booking');
 });
 
 test('duplicate requestId does not create a second event', function () {
@@ -203,7 +202,7 @@ test('authorized user sees complete details for another user booking', function 
 
     $events = $h->listEvents($c, $pdo, user('bob'), event_range())['events'];
     assert_true(count($events) === 1, 'Expected one visible event');
-    assert_true($events[0]['title'] === 'Alice microscopy session', 'Expected the real event title');
+    assert_true($events[0]['title'] === 'Booking', 'Expected the internal booking title');
     assert_true($events[0]['ownerUser'] === 'alice', 'Expected the event owner');
     assert_true($events[0]['note'] === 'Use the low-vacuum detector', 'Expected the event note');
     assert_true($events[0]['eventType'] === 'booking', 'Expected the event type');
@@ -236,8 +235,92 @@ test('ordinary user cannot create block', function () {
 
 test('manager can create block', function () {
     [$h, $c, $pdo] = fixture();
-    $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking(['eventType' => 'block', 'title' => 'Maintenance']))['event'];
+    $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T09:05:00-08:00',
+    ]))['event'];
     assert_true($event['eventType'] === 'block');
+    assert_true($event['title'] === 'Outage');
+});
+
+test('manager can create outage longer than booking maximum across days', function () {
+    [$h, $c, $pdo] = fixture();
+    $event = $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-02T09:00:00-08:00',
+        'end' => '2030-01-04T17:00:00-08:00',
+    ]))['event'];
+    assert_true($event['eventType'] === 'block');
+});
+
+test('manager can update outage beyond booking duration limits', function () {
+    [$h, $c, $pdo] = fixture();
+    $manager = user('manager', ['instrument-admin']);
+    $event = $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+    ]))['event'];
+    $updated = $h->updateEvent($c, $pdo, $manager, [
+        'eventId' => $event['id'],
+        'instrumentCode' => 'sem-01',
+        'eventType' => 'block',
+        'note' => '',
+        'start' => '2030-01-02T09:00:00-08:00',
+        'end' => '2030-01-05T17:00:00-08:00',
+    ])['event'];
+    assert_true($updated['eventType'] === 'block');
+    assert_true($updated['title'] === 'Outage');
+});
+
+test('outage still conflicts with existing booking', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user('alice'), booking());
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+            'eventType' => 'block',
+            'start' => '2030-01-01T09:30:00-08:00',
+            'end' => '2030-01-01T09:35:00-08:00',
+        ]));
+    });
+});
+
+test('outage still conflicts with existing outage', function () {
+    [$h, $c, $pdo] = fixture();
+    $manager = user('manager', ['instrument-admin']);
+    $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T09:10:00-08:00',
+    ]));
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo, $manager) {
+        $h->createEvent($c, $pdo, $manager, booking([
+            'eventType' => 'block',
+            'start' => '2030-01-01T09:05:00-08:00',
+            'end' => '2030-01-01T09:15:00-08:00',
+        ]));
+    });
+});
+
+test('adjacent outages do not apply booking buffers', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'sem-01' => [
+                'buffer_before_minutes' => 10,
+                'buffer_after_minutes' => 10,
+            ],
+        ],
+    ]);
+    $manager = user('manager', ['instrument-admin']);
+    $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T09:00:00-08:00',
+        'end' => '2030-01-01T09:05:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T09:05:00-08:00',
+        'end' => '2030-01-01T09:10:00-08:00',
+    ]));
 });
 
 test('existing event type cannot be changed', function () {
@@ -271,7 +354,7 @@ test('ordinary user cannot modify or cancel outage', function () {
     ]))['event'];
 
     $visible = $h->listEvents($c, $pdo, user('alice'), event_range())['events'][0];
-    assert_true($visible['title'] === 'Vacuum pump outage', 'Expected the outage title');
+    assert_true($visible['title'] === 'Outage', 'Expected the internal outage title');
     assert_true($visible['ownerUser'] === 'manager', 'Expected the outage owner');
     assert_true($visible['note'] === 'Do not operate the instrument', 'Expected the outage note');
     assert_true($visible['eventType'] === 'block', 'Expected the outage event type');
