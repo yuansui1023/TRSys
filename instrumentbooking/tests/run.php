@@ -76,6 +76,47 @@ function event_range(): array
     ];
 }
 
+function insert_raw_event(
+    PDO $pdo,
+    string $start,
+    string $end,
+    ?string $blockedStart = null,
+    ?string $blockedEnd = null,
+    string $eventType = 'booking'
+): void {
+    $startTimestamp = (new DateTimeImmutable($start))->getTimestamp();
+    $endTimestamp = (new DateTimeImmutable($end))->getTimestamp();
+    $stmt = $pdo->prepare(
+        'INSERT INTO events (
+            instrument_code, event_type, owner_user, title, note,
+            start_ts, end_ts, blocked_start_ts, blocked_end_ts,
+            request_id, created_at, updated_at
+        ) VALUES (
+            :instrument_code, :event_type, :owner_user, :title, :note,
+            :start_ts, :end_ts, :blocked_start_ts, :blocked_end_ts,
+            :request_id, :created_at, :updated_at
+        )'
+    );
+    $stmt->execute([
+        ':instrument_code' => 'sem-01',
+        ':event_type' => $eventType,
+        ':owner_user' => 'legacy-user',
+        ':title' => $eventType === 'block' ? 'Outage' : 'Booking',
+        ':note' => '',
+        ':start_ts' => $startTimestamp,
+        ':end_ts' => $endTimestamp,
+        ':blocked_start_ts' => $blockedStart === null
+            ? $startTimestamp
+            : (new DateTimeImmutable($blockedStart))->getTimestamp(),
+        ':blocked_end_ts' => $blockedEnd === null
+            ? $endTimestamp
+            : (new DateTimeImmutable($blockedEnd))->getTimestamp(),
+        ':request_id' => uuid_for_test(),
+        ':created_at' => time(),
+        ':updated_at' => time(),
+    ]);
+}
+
 function uuid_for_test(): string
 {
     static $i = 1;
@@ -105,12 +146,27 @@ function assert_error(string $code, callable $fn): void
     throw new RuntimeException('Expected error ' . $code);
 }
 
-test('09:00-10:00 and 10:00-11:00 do not conflict', function () {
+test('01:00-02:00 and 02:00-03:00 do not conflict', function () {
     [$h, $c, $pdo] = fixture();
-    $h->createEvent($c, $pdo, user(), booking());
     $h->createEvent($c, $pdo, user(), booking([
-        'start' => '2030-01-01T10:00:00-08:00',
-        'end' => '2030-01-01T11:00:00-08:00',
+        'start' => '2030-01-01T01:00:00-08:00',
+        'end' => '2030-01-01T02:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T02:00:00-08:00',
+        'end' => '2030-01-01T03:00:00-08:00',
+    ]));
+});
+
+test('01:00-01:30 and 01:30-02:00 do not conflict', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T01:00:00-08:00',
+        'end' => '2030-01-01T01:30:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T01:30:00-08:00',
+        'end' => '2030-01-01T02:00:00-08:00',
     ]));
 });
 
@@ -133,12 +189,79 @@ test('contained range conflicts', function () {
     });
 });
 
-test('buffer overlap conflicts', function () {
-    [$h, $c, $pdo] = fixture(['instruments' => ['sem-01' => ['buffer_after_minutes' => 10]]]);
-    $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T10:00:00-08:00']));
+test('identical ranges conflict', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user(), booking());
     assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
-        $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T10:00:00-08:00', 'end' => '2030-01-01T11:00:00-08:00']));
+        $h->createEvent($c, $pdo, user(), booking());
     });
+});
+
+test('range containing an existing event conflicts', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T01:30:00-08:00',
+        'end' => '2030-01-01T02:00:00-08:00',
+    ]));
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T01:00:00-08:00',
+            'end' => '2030-01-01T03:00:00-08:00',
+        ]));
+    });
+});
+
+test('legacy minute overlap at the end conflicts', function () {
+    [$h, $c, $pdo] = fixture();
+    insert_raw_event($pdo, '2030-01-01T01:00:00-08:00', '2030-01-01T02:01:00-08:00');
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T02:00:00-08:00',
+            'end' => '2030-01-01T03:00:00-08:00',
+        ]));
+    });
+});
+
+test('legacy minute overlap at the start conflicts', function () {
+    [$h, $c, $pdo] = fixture();
+    insert_raw_event($pdo, '2030-01-01T01:59:00-08:00', '2030-01-01T03:00:00-08:00');
+    assert_error('BOOKING_CONFLICT', function () use ($h, $c, $pdo) {
+        $h->createEvent($c, $pdo, user(), booking([
+            'start' => '2030-01-01T01:00:00-08:00',
+            'end' => '2030-01-01T02:00:00-08:00',
+        ]));
+    });
+});
+
+test('configured booking buffers no longer create conflicts', function () {
+    [$h, $c, $pdo] = fixture([
+        'instruments' => [
+            'sem-01' => [
+                'buffer_before_minutes' => 15,
+                'buffer_after_minutes' => 15,
+            ],
+        ],
+    ]);
+    $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T09:00:00-08:00', 'end' => '2030-01-01T10:00:00-08:00']));
+    $stored = $pdo->query('SELECT start_ts, end_ts, blocked_start_ts, blocked_end_ts FROM events ORDER BY id LIMIT 1')->fetch();
+    assert_true((int)$stored['blocked_start_ts'] === (int)$stored['start_ts'], 'Expected no stored buffer before booking');
+    assert_true((int)$stored['blocked_end_ts'] === (int)$stored['end_ts'], 'Expected no stored buffer after booking');
+    $h->createEvent($c, $pdo, user(), booking(['start' => '2030-01-01T10:00:00-08:00', 'end' => '2030-01-01T11:00:00-08:00']));
+});
+
+test('legacy blocked range buffers do not affect conflict checks', function () {
+    [$h, $c, $pdo] = fixture();
+    insert_raw_event(
+        $pdo,
+        '2030-01-01T01:00:00-08:00',
+        '2030-01-01T02:00:00-08:00',
+        '2030-01-01T00:45:00-08:00',
+        '2030-01-01T02:15:00-08:00'
+    );
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T02:00:00-08:00',
+        'end' => '2030-01-01T03:00:00-08:00',
+    ]));
 });
 
 test('cancelled events no longer block booking', function () {
@@ -325,6 +448,33 @@ test('adjacent outages do not apply booking buffers', function () {
         'eventType' => 'block',
         'start' => '2030-01-01T09:30:00-08:00',
         'end' => '2030-01-01T10:00:00-08:00',
+    ]));
+});
+
+test('booking can start when outage ends', function () {
+    [$h, $c, $pdo] = fixture();
+    $manager = user('manager', ['instrument-admin']);
+    $h->createEvent($c, $pdo, $manager, booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T01:00:00-08:00',
+        'end' => '2030-01-01T02:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T02:00:00-08:00',
+        'end' => '2030-01-01T03:00:00-08:00',
+    ]));
+});
+
+test('outage can start when booking ends', function () {
+    [$h, $c, $pdo] = fixture();
+    $h->createEvent($c, $pdo, user(), booking([
+        'start' => '2030-01-01T01:00:00-08:00',
+        'end' => '2030-01-01T02:00:00-08:00',
+    ]));
+    $h->createEvent($c, $pdo, user('manager', ['instrument-admin']), booking([
+        'eventType' => 'block',
+        'start' => '2030-01-01T02:00:00-08:00',
+        'end' => '2030-01-01T03:00:00-08:00',
     ]));
 });
 

@@ -124,6 +124,21 @@ body.instrument-booking-page #dokuwiki__content .page {
     letter-spacing: -0.025em;
 }
 
+.instrument-booking-app[data-theme="midnight-lab"] .ib-app-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.instrument-booking-app[data-theme="midnight-lab"] .ib-app-updated {
+    color: var(--ib-text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
 .instrument-booking-app[data-theme="midnight-lab"] .ib-app-subtitle {
     margin: 3px 0 0;
     color: var(--ib-text-secondary);

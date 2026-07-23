@@ -1,7 +1,7 @@
 base   instrumentbooking
 author Internal Lab
 email  webmaster@example.invalid
-date   2026-07-18
+date   2026-07-22
 name   Instrument Booking
 desc   Lightweight instrument booking system backed by DokuWiki users and SQLite
 url    https://www.dokuwiki.org/plugin:instrumentbooking

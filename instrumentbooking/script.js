@@ -49,6 +49,7 @@
             calendar: null,
             saving: false,
             statusLocked: false,
+            updatedDate: root.getAttribute('data-updated-date') || '',
             root: root
         };
 
@@ -77,11 +78,19 @@
 
         var appBar = el('div', 'ib-app-bar');
         var identity = el('div', 'ib-app-identity');
+        var titleRow = el('div', 'ib-app-title-row');
         var appTitle = el('h1', 'ib-app-title');
         appTitle.textContent = 'TRSys';
+        titleRow.appendChild(appTitle);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
+            var updated = el('time', 'ib-app-updated');
+            updated.setAttribute('datetime', state.updatedDate);
+            updated.textContent = 'Last updated: ' + state.updatedDate;
+            titleRow.appendChild(updated);
+        }
         var subtitle = el('p', 'ib-app-subtitle');
         subtitle.textContent = 'Tool Reservation System';
-        identity.appendChild(appTitle);
+        identity.appendChild(titleRow);
         identity.appendChild(subtitle);
         appBar.appendChild(identity);
 

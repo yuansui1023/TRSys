@@ -693,8 +693,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return [
             $start,
             $end,
-            $start - ((int)$instrument['buffer_before_minutes'] * 60),
-            $end + ((int)$instrument['buffer_after_minutes'] * 60),
+            $start,
+            $end,
         ];
     }
 
@@ -730,18 +730,18 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             ->format(DateTimeInterface::ATOM);
     }
 
-    private function assertNoConflict(PDO $pdo, string $instrumentCode, int $blockedStart, int $blockedEnd, ?int $excludeId): void
+    private function assertNoConflict(PDO $pdo, string $instrumentCode, int $newStart, int $newEnd, ?int $excludeId): void
     {
         $sql = 'SELECT id
                 FROM events
                 WHERE instrument_code = :instrument_code
                   AND cancelled_at IS NULL
-                  AND blocked_start_ts < :new_blocked_end
-                  AND blocked_end_ts > :new_blocked_start';
+                  AND start_ts < :new_end
+                  AND end_ts > :new_start';
         $params = [
             ':instrument_code' => $instrumentCode,
-            ':new_blocked_start' => $blockedStart,
-            ':new_blocked_end' => $blockedEnd,
+            ':new_start' => $newStart,
+            ':new_end' => $newEnd,
         ];
         if ($excludeId !== null) {
             $sql .= ' AND id <> :current_event_id';
