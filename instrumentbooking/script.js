@@ -1451,10 +1451,10 @@
                 canEdit
                     ? 'You can modify this outage because you created it.'
                     : 'Only the administrator who created this outage can modify it.',
-                false
+                !canEdit
             );
         } else if (!isCreate && !canEdit) {
-            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner can modify this booking.', false);
+            setDialogMessage(overlay, 'You can view the complete reservation details. Only the owner can modify this booking.', true);
         } else {
             setDialogMessage(overlay, '', false);
         }
