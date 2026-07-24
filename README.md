@@ -21,6 +21,7 @@ Node.js, Python, or application server is required.
 - TRCal administrators can manage tools and create outage periods.
 - TRCal administrator privileges are independent of DokuWiki superuser and
   group settings.
+- Header links to the exact deployed commit and the project GitHub repository.
 - Locally bundled FullCalendar assets; no production CDN dependency.
 - SQLite schema installer, cleanup command, automated PHP tests, and JavaScript
   logic tests.
@@ -203,13 +204,17 @@ Run the installer as the same operating-system user that serves DokuWiki:
 ```sh
 sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/install.php" \
-  --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
+  --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php" \
+  --source="$TRCAL_SOURCE"
 ```
 
 The command creates the database when needed and migrates an existing database
 to the current schema. It is safe and expected to run this command again after
 every plugin update. A successful installation prints the database path and
-schema version.
+schema version. `--source` reads the deployed checkout's Git commit and
+repository URL, then writes `build-info.json` beside the SQLite database. The
+web page uses this generated file to show the seven-character commit SHA and a
+link to the GitHub repository without executing Git during web requests.
 
 ### 7. Initialize the first TRCal administrator
 
@@ -331,7 +336,8 @@ sudo rsync -a --delete --delete-excluded \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
 sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/install.php" \
-  --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
+  --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php" \
+  --source="$TRCAL_SOURCE"
 ```
 
 The live configuration and SQLite database are outside the deployed plugin

@@ -57,8 +57,8 @@
             weekViewEnd: null,
             timeSlotScrollInitialized: false,
             calendarResizeObserver: null,
-            updatedTimestamp: Number(root.getAttribute('data-updated-timestamp') || '') || 0,
-            updatedDate: root.getAttribute('data-updated-date') || '',
+            buildCommit: root.getAttribute('data-build-commit') || '',
+            repositoryUrl: root.getAttribute('data-repository-url') || '',
             root: root
         };
 
@@ -69,7 +69,6 @@
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
             state.timezone = data.timezone;
-            refreshUpdatedLabel(state);
             state.isAdmin = data.isAdmin === true;
             state.instruments = data.instruments || [];
             var settingsButton = root.querySelector('.ib-settings-button');
@@ -116,10 +115,10 @@
         var appTitle = el('h1', 'ib-app-title');
         appTitle.textContent = 'TRCal';
         titleRow.appendChild(appTitle);
-        var updated = el('time', 'ib-app-updated');
-        updated.hidden = true;
-        titleRow.appendChild(updated);
-        refreshUpdatedLabel(state);
+        var buildMeta = el('span', 'ib-app-build');
+        buildMeta.hidden = true;
+        titleRow.appendChild(buildMeta);
+        refreshBuildLabel(state);
         var subtitle = el('p', 'ib-app-subtitle');
         subtitle.textContent = 'Tool Reservation Calendar';
         identity.appendChild(titleRow);
@@ -1692,32 +1691,63 @@
         return parts.hour + ':' + parts.minute;
     }
 
-    function refreshUpdatedLabel(state) {
-        var node = state.root.querySelector('.ib-app-updated');
+    function refreshBuildLabel(state) {
+        var node = state.root.querySelector('.ib-app-build');
         if (!node) {
             return;
         }
-        var date = '';
-        if (state.updatedTimestamp > 0 && state.timezone) {
-            date = formatDateInTimezone(state.updatedTimestamp * 1000, state.timezone);
-        } else if (/^\d{4}-\d{2}-\d{2}$/.test(state.updatedDate)) {
-            date = state.updatedDate;
-        }
-        if (!date) {
+        var commit = /^[0-9a-f]{40}$/i.test(state.buildCommit) ? state.buildCommit.toLowerCase() : '';
+        var repositoryUrl = safeRepositoryUrl(state.repositoryUrl);
+        if (!commit && !repositoryUrl) {
             node.hidden = true;
             node.textContent = '';
-            node.removeAttribute('datetime');
             return;
         }
-        state.updatedDate = date;
+
+        node.textContent = '';
+        if (commit) {
+            if (repositoryUrl) {
+                var commitLink = el('a', 'ib-build-link');
+                commitLink.href = repositoryUrl + '/commit/' + commit;
+                commitLink.target = '_blank';
+                commitLink.rel = 'noopener noreferrer';
+                commitLink.textContent = commit.slice(0, 7);
+                node.appendChild(commitLink);
+            } else {
+                node.appendChild(document.createTextNode(commit.slice(0, 7)));
+            }
+        }
+        if (repositoryUrl) {
+            if (commit) {
+                node.appendChild(document.createTextNode(' · '));
+            }
+            var repositoryLink = el('a', 'ib-build-link');
+            repositoryLink.href = repositoryUrl;
+            repositoryLink.target = '_blank';
+            repositoryLink.rel = 'noopener noreferrer';
+            repositoryLink.textContent = repositoryUrl.replace(/^https:\/\//, '');
+            node.appendChild(repositoryLink);
+        }
         node.hidden = false;
-        node.setAttribute('datetime', date);
-        node.textContent = 'Last updated: ' + date;
     }
 
-    function formatDateInTimezone(timestampMs, timezone) {
-        var parts = zonedParts(new Date(timestampMs), timezone);
-        return parts.year + '-' + parts.month + '-' + parts.day;
+    function safeRepositoryUrl(value) {
+        if (typeof value !== 'string' || !/^https:\/\/github\.com\//i.test(value)) {
+            return '';
+        }
+        try {
+            var parsed = new URL(value);
+            if (
+                parsed.protocol !== 'https:'
+                || parsed.hostname.toLowerCase() !== 'github.com'
+                || !/^\/[^/]+\/[^/]+\/?$/.test(parsed.pathname)
+            ) {
+                return '';
+            }
+            return parsed.origin + parsed.pathname.replace(/\/$/, '');
+        } catch (error) {
+            return '';
+        }
     }
 
     function ensureExplicitOffset(value, timezone) {

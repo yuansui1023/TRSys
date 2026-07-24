@@ -39,11 +39,26 @@ try {
     $helper->applySchema($pdo, dirname(__DIR__) . '/db/schema.sql');
     @chmod($databasePath, 0660);
 
+    $sourcePath = $options['source'] ?? getenv('TRCAL_SOURCE');
+    $buildMeta = null;
+    $buildMetaPath = null;
+    if (is_string($sourcePath) && trim($sourcePath) !== '') {
+        $buildMeta = $helper->gitBuildMetaFromSource($sourcePath);
+        $buildMetaPath = $helper->writePluginBuildMeta($config, $buildMeta);
+    }
+
     echo "Instrument Booking database initialized.\n";
     echo "Config: " . ($configPath ?: $helper->defaultConfigPath()) . "\n";
     echo "Database: " . $databasePath . "\n";
     echo "Filesystem type: " . $fsType . "\n";
     echo "Schema version: " . $helper->schemaVersion($pdo) . "\n";
+    if (is_array($buildMeta) && is_string($buildMetaPath)) {
+        echo "Build commit: " . substr($buildMeta['commit'], 0, 7) . "\n";
+        echo "Repository: " . $buildMeta['repositoryUrl'] . "\n";
+        echo "Build metadata: " . $buildMetaPath . "\n";
+    } else {
+        echo "Build metadata: not updated (pass --source=/path/to/git/checkout)\n";
+    }
     if ($fsType === 'unknown') {
         echo "Warning: filesystem type could not be detected automatically. Verify it is local disk, not NFS/SMB.\n";
     }
@@ -59,8 +74,11 @@ function parse_args(array $argv): array
     foreach (array_slice($argv, 1) as $arg) {
         if (str_starts_with($arg, '--config=')) {
             $options['config'] = substr($arg, 9);
+        } elseif (str_starts_with($arg, '--source=')) {
+            $options['source'] = substr($arg, 9);
         } elseif ($arg === '--help' || $arg === '-h') {
-            echo "Usage: php bin/install.php [--config=/path/to/instrumentbooking.local.php]\n";
+            echo "Usage: php bin/install.php [--config=/path/to/instrumentbooking.local.php]"
+                . " [--source=/path/to/git/checkout]\n";
             exit(0);
         } else {
             throw new RuntimeException('Unknown option: ' . $arg);

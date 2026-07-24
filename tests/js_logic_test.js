@@ -106,6 +106,16 @@ check('TRCal product branding is current', function () {
     assert.ok(script.indexOf("subtitle.textContent = 'Tool Reservation Calendar'") !== -1);
 });
 
+check('header shows short commit SHA and GitHub repository without branch label', function () {
+    assert.ok(script.indexOf("root.getAttribute('data-build-commit')") !== -1);
+    assert.ok(script.indexOf("root.getAttribute('data-repository-url')") !== -1);
+    assert.ok(script.indexOf("commit.slice(0, 7)") !== -1);
+    assert.ok(script.indexOf("repositoryUrl + '/commit/' + commit") !== -1);
+    assert.ok(script.indexOf("repositoryUrl.replace(/^https:\\/\\//, '')") !== -1);
+    assert.ok(script.indexOf('Last updated:') === -1);
+    assert.ok(script.indexOf('main @') === -1);
+});
+
 check('Delete button uses type=button and opens confirm', function () {
     assert.ok(script.indexOf("button('button', 'Delete')") !== -1);
     assert.ok(script.indexOf('del.type = \'button\'') !== -1);

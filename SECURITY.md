@@ -24,6 +24,9 @@ on DokuWiki authentication plus the ACL of the page containing
 - TRCal administrators can create outage events, but administrator status does
   not allow editing another user's booking.
 - The SQLite database is intended to live outside the DokuWiki web root.
+- Generated build metadata is stored beside the SQLite database, contains only
+  the deployed commit SHA and a validated HTTPS GitHub repository URL, and
+  never exposes the source checkout or database path to the browser.
 - `bin/` and `db/` are not public API paths and should not be web-accessible directly.
 - Production JSON errors do not include SQL, stack traces, database paths, server paths, PHP details, or session data.
 

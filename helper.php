@@ -460,106 +460,116 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         return null;
     }
 
-    public function pluginCodeUpdatedTimestamp(?string $pluginRoot = null): ?int
+    /**
+     * @return array{commit:string, repositoryUrl:string}
+     */
+    public function gitBuildMetaFromSource(string $sourceRoot): array
     {
-        $root = $pluginRoot ?? __DIR__;
-        $root = realpath($root);
+        $root = realpath($sourceRoot);
         if ($root === false || !is_dir($root)) {
-            return null;
+            throw new InstrumentBookingException('INVALID_INPUT', 'The Git source directory does not exist.', 400);
         }
 
-        $excludeDirs = ['.git' => true, 'tests' => true];
-        $excludeFiles = [
-            'readme.md' => true,
-            'install.md' => true,
-            'security.md' => true,
-            'license' => true,
-            'third_party_licenses.md' => true,
-            '.ds_store' => true,
+        $gitDir = $root . DIRECTORY_SEPARATOR . '.git';
+        if (is_file($gitDir)) {
+            $pointer = trim((string)@file_get_contents($gitDir));
+            if (!str_starts_with($pointer, 'gitdir:')) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'The Git metadata pointer is invalid.', 400);
+            }
+            $target = trim(substr($pointer, strlen('gitdir:')));
+            $gitDir = str_starts_with($target, DIRECTORY_SEPARATOR)
+                ? $target
+                : $root . DIRECTORY_SEPARATOR . $target;
+            $gitDir = realpath($gitDir) ?: $gitDir;
+        }
+        if (!is_dir($gitDir)) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The source directory is not a Git checkout.', 400);
+        }
+
+        $head = trim((string)@file_get_contents($gitDir . DIRECTORY_SEPARATOR . 'HEAD'));
+        if ($head === '') {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The Git HEAD could not be read.', 400);
+        }
+
+        $commit = $head;
+        if (str_starts_with($head, 'ref: ')) {
+            $ref = trim(substr($head, 5));
+            if (
+                preg_match('#^refs/heads/[A-Za-z0-9._/-]+$#', $ref) !== 1
+                || str_contains($ref, '..')
+            ) {
+                throw new InstrumentBookingException('INVALID_INPUT', 'The Git branch reference is invalid.', 400);
+            }
+            $commit = $this->readGitRef($gitDir, $ref);
+        }
+
+        $commit = strtolower(trim($commit));
+        if (preg_match('/^[0-9a-f]{40}$/', $commit) !== 1) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The Git commit identifier is invalid.', 400);
+        }
+
+        $repositoryUrl = $this->gitOriginRepositoryUrl($gitDir)
+            ?? $this->pluginInfoRepositoryUrl($root);
+        if ($repositoryUrl === null) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The GitHub repository URL could not be determined.', 400);
+        }
+
+        return [
+            'commit' => $commit,
+            'repositoryUrl' => $repositoryUrl,
         ];
-        $includeExtensions = [
-            'php' => true,
-            'js' => true,
-            'css' => true,
-            'sql' => true,
-        ];
-
-        $latest = null;
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $fileInfo) {
-            if (!$fileInfo->isFile()) {
-                continue;
-            }
-            $relative = substr($fileInfo->getPathname(), strlen($root) + 1);
-            $relative = str_replace('\\', '/', $relative);
-            $parts = explode('/', $relative);
-            if (isset($excludeDirs[$parts[0]])) {
-                continue;
-            }
-            $basename = strtolower($fileInfo->getFilename());
-            if (isset($excludeFiles[$basename])) {
-                continue;
-            }
-            $extension = strtolower($fileInfo->getExtension());
-            $included = isset($includeExtensions[$extension]) || $basename === 'plugin.info.txt';
-            if (!$included) {
-                continue;
-            }
-            $mtime = $fileInfo->getMTime();
-            if (!is_int($mtime) || $mtime <= 0) {
-                continue;
-            }
-            if ($latest === null || $mtime > $latest) {
-                $latest = $mtime;
-            }
-        }
-
-        return $latest;
-    }
-
-    public function pluginInfoFallbackDate(?string $pluginRoot = null): ?string
-    {
-        $root = $pluginRoot ?? __DIR__;
-        $path = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'plugin.info.txt';
-        if (!is_file($path)) {
-            return null;
-        }
-        $contents = @file_get_contents($path);
-        if (!is_string($contents)) {
-            return null;
-        }
-        if (preg_match('/^date\s+(\d{4}-\d{2}-\d{2})\s*$/mi', $contents, $matches) !== 1) {
-            return null;
-        }
-        return $matches[1];
-    }
-
-    public function formatPluginUpdatedDate(int $timestamp, string $timezone): string
-    {
-        return (new DateTimeImmutable('@' . $timestamp))
-            ->setTimezone(new DateTimeZone($timezone))
-            ->format('Y-m-d');
     }
 
     /**
-     * @return array{timestamp:?int, date:?string}
+     * @param array{commit:string, repositoryUrl:string} $meta
      */
-    public function pluginUpdatedMeta(?string $pluginRoot = null, ?string $timezone = null): array
+    public function writePluginBuildMeta(array $config, array $meta): string
     {
-        $timezone = $timezone ?: 'America/Los_Angeles';
-        $timestamp = $this->pluginCodeUpdatedTimestamp($pluginRoot);
-        if ($timestamp !== null) {
-            return [
-                'timestamp' => $timestamp,
-                'date' => $this->formatPluginUpdatedDate($timestamp, $timezone),
-            ];
+        $normalized = $this->normalizeBuildMeta($meta);
+        if ($normalized === null) {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The build metadata is invalid.', 400);
         }
-        $fallback = $this->pluginInfoFallbackDate($pluginRoot);
+        $databasePath = isset($config['database_path']) ? (string)$config['database_path'] : '';
+        if ($databasePath === '') {
+            throw new InstrumentBookingException('INVALID_INPUT', 'The database path is required.', 500);
+        }
+        $path = dirname($databasePath) . DIRECTORY_SEPARATOR . 'build-info.json';
+        $temporary = $path . '.tmp-' . bin2hex(random_bytes(6));
+        $json = json_encode($normalized, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json) || @file_put_contents($temporary, $json . "\n", LOCK_EX) === false) {
+            @unlink($temporary);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The build metadata could not be written.', 500);
+        }
+        @chmod($temporary, 0660);
+        if (!@rename($temporary, $path)) {
+            @unlink($temporary);
+            throw new InstrumentBookingException('INVALID_INPUT', 'The build metadata could not be installed.', 500);
+        }
+        return $path;
+    }
+
+    /**
+     * @return array{commit:?string, repositoryUrl:?string}
+     */
+    public function pluginBuildMeta(?array $config = null, ?string $pluginRoot = null): array
+    {
+        $fallbackUrl = $this->pluginInfoRepositoryUrl($pluginRoot ?? __DIR__);
+        if (is_array($config) && !empty($config['database_path'])) {
+            $path = dirname((string)$config['database_path']) . DIRECTORY_SEPARATOR . 'build-info.json';
+            $contents = @file_get_contents($path);
+            if (is_string($contents)) {
+                $decoded = json_decode($contents, true);
+                if (is_array($decoded)) {
+                    $normalized = $this->normalizeBuildMeta($decoded);
+                    if ($normalized !== null) {
+                        return $normalized;
+                    }
+                }
+            }
+        }
         return [
-            'timestamp' => null,
-            'date' => $fallback,
+            'commit' => null,
+            'repositoryUrl' => $fallbackUrl,
         ];
     }
 
@@ -1806,6 +1816,96 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
     private function textLength(string $value): int
     {
         return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
+    }
+
+    private function readGitRef(string $gitDir, string $ref): string
+    {
+        $path = $gitDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $ref);
+        $value = trim((string)@file_get_contents($path));
+        if ($value !== '') {
+            return $value;
+        }
+
+        $packedRefs = @file($gitDir . DIRECTORY_SEPARATOR . 'packed-refs', FILE_IGNORE_NEW_LINES);
+        if (is_array($packedRefs)) {
+            foreach ($packedRefs as $line) {
+                if ($line === '' || $line[0] === '#' || $line[0] === '^') {
+                    continue;
+                }
+                $parts = preg_split('/\s+/', trim($line), 2);
+                if (is_array($parts) && count($parts) === 2 && $parts[1] === $ref) {
+                    return $parts[0];
+                }
+            }
+        }
+        throw new InstrumentBookingException('INVALID_INPUT', 'The Git commit reference could not be read.', 400);
+    }
+
+    private function gitOriginRepositoryUrl(string $gitDir): ?string
+    {
+        $contents = @file_get_contents($gitDir . DIRECTORY_SEPARATOR . 'config');
+        if (!is_string($contents)) {
+            return null;
+        }
+        if (
+            preg_match(
+                '/^\[remote\s+"origin"\]\s*$([\s\S]*?)(?=^\[|\z)/mi',
+                $contents,
+                $section
+            ) !== 1
+        ) {
+            return null;
+        }
+        if (preg_match('/^\s*url\s*=\s*(.+?)\s*$/mi', $section[1], $match) !== 1) {
+            return null;
+        }
+        return $this->normalizeGitHubRepositoryUrl(trim($match[1], " \t\n\r\0\x0B\"'"));
+    }
+
+    private function pluginInfoRepositoryUrl(string $pluginRoot): ?string
+    {
+        $path = rtrim($pluginRoot, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'plugin.info.txt';
+        $contents = @file_get_contents($path);
+        if (!is_string($contents)) {
+            return null;
+        }
+        if (preg_match('/^url\s+(\S+)\s*$/mi', $contents, $match) !== 1) {
+            return null;
+        }
+        return $this->normalizeGitHubRepositoryUrl($match[1]);
+    }
+
+    private function normalizeGitHubRepositoryUrl(string $value): ?string
+    {
+        $patterns = [
+            '#^https://github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$#i',
+            '#^git@github\.com:([^/\s]+)/([^/\s]+?)(?:\.git)?$#i',
+            '#^ssh://git@github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$#i',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $value, $match) === 1) {
+                return 'https://github.com/' . $match[1] . '/' . $match[2];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return array{commit:string, repositoryUrl:string}|null
+     */
+    private function normalizeBuildMeta(array $meta): ?array
+    {
+        $commit = isset($meta['commit']) ? strtolower(trim((string)$meta['commit'])) : '';
+        $repositoryUrl = isset($meta['repositoryUrl'])
+            ? $this->normalizeGitHubRepositoryUrl(trim((string)$meta['repositoryUrl']))
+            : null;
+        if (preg_match('/^[0-9a-f]{40}$/', $commit) !== 1 || $repositoryUrl === null) {
+            return null;
+        }
+        return [
+            'commit' => $commit,
+            'repositoryUrl' => $repositoryUrl,
+        ];
     }
 
     private function beginImmediate(PDO $pdo): void

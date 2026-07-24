@@ -45,27 +45,27 @@ class syntax_plugin_instrumentbooking extends DokuWiki_Syntax_Plugin
         $vendorJs = $base . 'lib/plugins/instrumentbooking/vendor/fullcalendar/index.global.min.js';
 
         $helper = new helper_plugin_instrumentbooking();
-        $timezone = 'America/Los_Angeles';
+        $config = null;
         try {
             $config = $helper->loadBookingConfig();
-            if (!empty($config['timezone']) && is_string($config['timezone'])) {
-                $timezone = $config['timezone'];
-            }
         } catch (Throwable $e) {
-            // Keep the default laboratory timezone when local config is unavailable.
+            // The repository link can still fall back to plugin.info.txt.
         }
-        $updated = $helper->pluginUpdatedMeta(__DIR__, $timezone);
-        $updatedAttribute = '';
-        if ($updated['timestamp'] !== null) {
-            $updatedAttribute .= ' data-updated-timestamp="' . $this->escape((string)$updated['timestamp']) . '"';
+        $build = $helper->pluginBuildMeta($config, __DIR__);
+        $buildAttributes = '';
+        if (is_string($build['commit']) && preg_match('/^[0-9a-f]{40}$/', $build['commit']) === 1) {
+            $buildAttributes .= ' data-build-commit="' . $this->escape($build['commit']) . '"';
         }
-        if (is_string($updated['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $updated['date']) === 1) {
-            $updatedAttribute .= ' data-updated-date="' . $this->escape($updated['date']) . '"';
+        if (
+            is_string($build['repositoryUrl'])
+            && str_starts_with($build['repositoryUrl'], 'https://github.com/')
+        ) {
+            $buildAttributes .= ' data-repository-url="' . $this->escape($build['repositoryUrl']) . '"';
         }
 
         $renderer->doc .= '<div id="instrument-booking-app" class="instrument-booking-app"'
             . ' data-ajax-url="' . $this->escape($ajaxUrl) . '"'
-            . $updatedAttribute
+            . $buildAttributes
             . ' data-fullcalendar-js="' . $this->escape($vendorJs) . '">'
             . '<p>' . $this->escape($this->getLang('loading') ?: 'Loading instrument bookings...') . '</p>'
             . '</div>' . "\n";
