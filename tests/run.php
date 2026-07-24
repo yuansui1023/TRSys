@@ -1285,12 +1285,12 @@ test('instruments API marks only plugin_admins as isAdmin', function () {
     assert_true($guest['isAdmin'] === false);
     $unlisted = $h->listInstruments($c, $pdo, user('wiki-admin'));
     assert_true($unlisted['isAdmin'] === false);
-    grant_plugin_admin($pdo, 'trsys-admin');
-    $admin = $h->listInstruments($c, $pdo, plugin_admin('trsys-admin'));
+    grant_plugin_admin($pdo, 'trcal-admin');
+    $admin = $h->listInstruments($c, $pdo, plugin_admin('trcal-admin'));
     assert_true($admin['isAdmin'] === true);
 });
 
-test('username absent from plugin_admins is not trsys admin', function () {
+test('username absent from plugin_admins is not trcal admin', function () {
     [$h, $c, $pdo] = fixture();
     $context = user('wiki-admin');
     assert_true($h->isPluginAdmin($pdo, $context) === false);
@@ -1718,7 +1718,7 @@ test('tool settings reject non positive hour values', function () {
     });
 });
 
-test('trsys admin can list dokuwiki candidate users', function () {
+test('trcal admin can list dokuwiki candidate users', function () {
     [$h, $c, $pdo] = fixture();
     grant_plugin_admin($pdo, 'manager');
     $h->knownUsers = [

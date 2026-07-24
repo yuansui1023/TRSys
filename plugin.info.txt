@@ -2,6 +2,6 @@ base   instrumentbooking
 author Yuan Sui
 email  yuansui@berkeley.edu
 date   2026-07-23
-name   TRSys
+name   TRCal
 desc   Lightweight instrument booking system backed by DokuWiki users and SQLite
 url    https://github.com/yuansui1023/TRSys

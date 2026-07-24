@@ -8,7 +8,7 @@ on DokuWiki authentication plus the ACL of the page containing
 
 - DokuWiki login is required for all AJAX operations.
 - The authenticated username is read from the DokuWiki session, never from the request body.
-- TRSys administrator rights come only from the SQLite `plugin_admins` table.
+- TRCal administrator rights come only from the SQLite `plugin_admins` table.
 - Candidate administrators are enumerated with the current auth backend `retrieveUsers()` API when `canDo('getUsers')` is true; passwords, emails, and groups are never returned.
 - Adding an administrator re-validates the username with `getUserData()` before insert and rejects username arrays.
 - Write operations require DokuWiki CSRF validation.
@@ -21,7 +21,7 @@ on DokuWiki authentication plus the ACL of the page containing
   reservation details, including username and note. This is an intentional
   collaboration policy, not a privacy boundary.
 - A user can modify or cancel only their own eligible booking.
-- TRSys administrators can create outage events, but administrator status does
+- TRCal administrators can create outage events, but administrator status does
   not allow editing another user's booking.
 - The SQLite database is intended to live outside the DokuWiki web root.
 - `bin/` and `db/` are not public API paths and should not be web-accessible directly.

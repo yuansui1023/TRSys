@@ -290,13 +290,13 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
         try {
             $existing = $this->findPluginAdmin($pdo, $username);
             if ($existing === null) {
-                throw new InstrumentBookingException('ADMIN_NOT_FOUND', 'That username is not a TRSys administrator.', 404);
+                throw new InstrumentBookingException('ADMIN_NOT_FOUND', 'That username is not a TRCal administrator.', 404);
             }
             $count = (int)$pdo->query('SELECT COUNT(*) FROM plugin_admins')->fetchColumn();
             if ($count <= 1) {
                 throw new InstrumentBookingException(
                     'LAST_ADMIN_CANNOT_BE_REVOKED',
-                    'The last TRSys administrator cannot be revoked.',
+                    'The last TRCal administrator cannot be revoked.',
                     409
                 );
             }
@@ -338,7 +338,7 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             if ($count > 0) {
                 throw new InstrumentBookingException(
                     'INVALID_INPUT',
-                    'TRSys administrators already exist. Use Settings or revoke before bootstrapping.',
+                    'TRCal administrators already exist. Use Settings or revoke before bootstrapping.',
                     409
                 );
             }

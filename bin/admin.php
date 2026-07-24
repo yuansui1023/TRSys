@@ -56,7 +56,7 @@ try {
 
     if ($command === 'bootstrap') {
         $result = $helper->bootstrapPluginAdminCli($pdo, $username);
-        echo "Bootstrapped first TRSys administrator: " . $result['username'] . "\n";
+        echo "Bootstrapped first TRCal administrator: " . $result['username'] . "\n";
         echo "DokuWiki user accounts were not modified.\n";
         exit(0);
     }
@@ -64,10 +64,10 @@ try {
     if ($command === 'list') {
         $admins = $helper->listPluginAdmins($pdo);
         if ($admins === []) {
-            echo "No TRSys administrators configured.\n";
+            echo "No TRCal administrators configured.\n";
             exit(0);
         }
-        echo "TRSys administrators:\n";
+        echo "TRCal administrators:\n";
         foreach ($admins as $admin) {
             echo "  " . $admin['username'] . "\n";
         }
@@ -75,8 +75,8 @@ try {
     }
 
     $result = $helper->revokePluginAdminCli($pdo, $username);
-    echo "Revoked TRSys administrator: " . $result['username'] . "\n";
-    echo "Remaining TRSys administrators: " . $result['remainingAdmins'] . "\n";
+    echo "Revoked TRCal administrator: " . $result['username'] . "\n";
+    echo "Remaining TRCal administrators: " . $result['remainingAdmins'] . "\n";
     echo "DokuWiki user accounts were not modified.\n";
     exit(0);
 } catch (Throwable $e) {

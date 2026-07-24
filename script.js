@@ -114,14 +114,14 @@
         var identity = el('div', 'ib-app-identity');
         var titleRow = el('div', 'ib-app-title-row');
         var appTitle = el('h1', 'ib-app-title');
-        appTitle.textContent = 'TRSys';
+        appTitle.textContent = 'TRCal';
         titleRow.appendChild(appTitle);
         var updated = el('time', 'ib-app-updated');
         updated.hidden = true;
         titleRow.appendChild(updated);
         refreshUpdatedLabel(state);
         var subtitle = el('p', 'ib-app-subtitle');
-        subtitle.textContent = 'Tool Reservation System';
+        subtitle.textContent = 'Tool Reservation Calendar';
         identity.appendChild(titleRow);
         identity.appendChild(subtitle);
         appBar.appendChild(identity);
@@ -750,7 +750,7 @@
         dialog.appendChild(heading);
 
         var introduction = el('p', 'ib-settings-intro');
-        introduction.textContent = 'Manage tools and TRSys administrators.';
+        introduction.textContent = 'Manage tools and TRCal administrators.';
         dialog.appendChild(introduction);
 
         var message = el('p', 'ib-dialog-message ib-settings-message');
@@ -798,7 +798,7 @@
 
         var adminsSection = el('section', 'ib-settings-section');
         var adminsTitle = el('h4', 'ib-settings-section-title');
-        adminsTitle.textContent = 'TRSys Administrators';
+        adminsTitle.textContent = 'TRCal Administrators';
         adminsSection.appendChild(adminsTitle);
         var adminsHelp = el('p', 'ib-settings-empty');
         adminsHelp.textContent = 'Administrators can be added here. Use the server CLI to revoke access.';
@@ -934,7 +934,7 @@
         list.textContent = '';
         if (!admins.length) {
             var empty = el('p', 'ib-settings-empty');
-            empty.textContent = 'No TRSys administrators have been added yet.';
+            empty.textContent = 'No TRCal administrators have been added yet.';
             list.appendChild(empty);
             return;
         }

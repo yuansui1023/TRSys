@@ -101,6 +101,11 @@ function check(name, fn) {
     }
 }
 
+check('TRCal product branding is current', function () {
+    assert.ok(script.indexOf("appTitle.textContent = 'TRCal'") !== -1);
+    assert.ok(script.indexOf("subtitle.textContent = 'Tool Reservation Calendar'") !== -1);
+});
+
 check('Delete button uses type=button and opens confirm', function () {
     assert.ok(script.indexOf("button('button', 'Delete')") !== -1);
     assert.ok(script.indexOf('del.type = \'button\'') !== -1);

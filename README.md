@@ -1,10 +1,11 @@
-# TRSys
+# TRCal
 
-TRSys (Tool Reservation System) is a lightweight instrument-booking plugin for
-DokuWiki. It is intended for a small internal laboratory where users already
-have DokuWiki accounts and need a shared weekly calendar for reserving tools.
+TRCal (Tool Reservation Calendar) is a lightweight instrument-booking plugin
+for DokuWiki. It is intended for a small internal laboratory where users
+already have DokuWiki accounts and need a shared weekly calendar for reserving
+tools.
 
-TRSys runs inside DokuWiki. It reuses DokuWiki authentication, serves a
+TRCal runs inside DokuWiki. It reuses DokuWiki authentication, serves a
 FullCalendar-based interface without a CDN or frontend build step, and stores
 reservations in a local SQLite database outside the web root. No separate
 Node.js, Python, or application server is required.
@@ -17,8 +18,8 @@ Node.js, Python, or application server is required.
 - Transactional conflict detection, including simultaneous requests.
 - Full reservation details visible to every authenticated user.
 - Booking owners can edit or cancel their own future reservations.
-- TRSys administrators can manage tools and create outage periods.
-- TRSys administrator privileges are independent of DokuWiki superuser and
+- TRCal administrators can manage tools and create outage periods.
+- TRCal administrator privileges are independent of DokuWiki superuser and
   group settings.
 - Locally bundled FullCalendar assets; no production CDN dependency.
 - SQLite schema installer, cleanup command, automated PHP tests, and JavaScript
@@ -35,7 +36,7 @@ no additional `instrumentbooking/` wrapper directory.
 ├── helper.php                         booking, quota, permission, and DB logic
 ├── syntax.php                         ~~INSTRUMENTBOOKING~~ renderer
 ├── script.js                          calendar and settings interface
-├── style.css                          TRSys visual theme
+├── style.css                          TRCal visual theme
 ├── plugin.info.txt                    DokuWiki plugin metadata
 ├── instrumentbooking.local.php.example
 ├── bin/
@@ -64,12 +65,12 @@ values for your server.
 
 The installation order is: install requirements, clone the source, copy the
 plugin, create the local configuration and SQLite directory, initialize the
-database, bootstrap the first TRSys administrator, run the server tests, create
+database, bootstrap the first TRCal administrator, run the server tests, create
 the DokuWiki page, and finally create tools in **Settings**.
 
 ### 1. Install requirements
 
-TRSys requires:
+TRCal requires:
 
 - A working DokuWiki installation.
 - PHP 8.2 or newer.
@@ -93,7 +94,7 @@ Apache or PHP-FPM service before testing the plugin.
 Some scientific servers export a global `LD_LIBRARY_PATH`, commonly from
 MATLAB Runtime. An incompatible bundled `libstdc++.so.6` can prevent PHP
 extensions such as `gd`, `intl`, or `pdo_sqlite` from loading. Do not replace
-the system or MATLAB libraries. Run TRSys maintenance commands with
+the system or MATLAB libraries. Run TRCal maintenance commands with
 `env -u LD_LIBRARY_PATH`, as shown throughout this guide, and verify the PHP
 modules as the web-server account:
 
@@ -108,10 +109,10 @@ The DokuWiki root is the directory containing `doku.php`.
 
 ```sh
 export DOKUWIKI_ROOT=/var/www/dokuwiki
-export TRSYS_SOURCE=/opt/TRSys
+export TRCAL_SOURCE=/opt/TRSys
 test -f "$DOKUWIKI_ROOT/doku.php"
 sudo env -u LD_LIBRARY_PATH git clone --branch main --single-branch \
-  https://github.com/yuansui1023/TRSys.git "$TRSYS_SOURCE"
+  https://github.com/yuansui1023/TRSys.git "$TRCAL_SOURCE"
 ```
 
 For an upgrade, use the existing source checkout and run `git pull` there
@@ -132,7 +133,7 @@ sudo rsync -a \
   --exclude='README.md' \
   --exclude='SECURITY.md' \
   --exclude='tests/' \
-  "$TRSYS_SOURCE/" \
+  "$TRCAL_SOURCE/" \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
 ```
 
@@ -170,7 +171,7 @@ return [
 
 `database_path` should be an absolute path outside the DokuWiki web root.
 `timezone` must be a valid PHP/IANA timezone name. Tools and their booking
-limits are created later from the TRSys Settings panel; they do not need to be
+limits are created later from the TRCal Settings panel; they do not need to be
 hard-coded in this file.
 
 Protect the configuration while keeping it readable by the web server:
@@ -210,7 +211,7 @@ to the current schema. It is safe and expected to run this command again after
 every plugin update. A successful installation prints the database path and
 schema version.
 
-### 7. Initialize the first TRSys administrator
+### 7. Initialize the first TRCal administrator
 
 This is a required installation step. The username must already exist in
 DokuWiki, and it must be the account's login name rather than its display name.
@@ -222,12 +223,12 @@ sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   --config="$DOKUWIKI_ROOT/conf/instrumentbooking.local.php"
 ```
 
-`bootstrap` works only while the TRSys administrator table is empty. It does
+`bootstrap` works only while the TRCal administrator table is empty. It does
 not grant DokuWiki superuser privileges and does not alter the DokuWiki user
 account.
 
 After logging in with this account, open **Settings** to create tools and add
-additional TRSys administrators from the existing DokuWiki user list.
+additional TRCal administrators from the existing DokuWiki user list.
 
 ### 8. Run the server tests
 
@@ -235,7 +236,7 @@ Run the PHP test suite from the source checkout:
 
 ```sh
 sudo -u www-data env -u LD_LIBRARY_PATH \
-  php "$TRSYS_SOURCE/tests/run.php"
+  php "$TRCAL_SOURCE/tests/run.php"
 ```
 
 For the current release, a successful result ends with:
@@ -256,7 +257,7 @@ Create a page such as `booking:calendar` with this content:
 ```
 
 Use DokuWiki ACL rules to restrict that page to the intended signed-in lab
-users. TRSys requires a DokuWiki login for every API operation, but page ACL is
+users. TRCal requires a DokuWiki login for every API operation, but page ACL is
 still the correct outer access boundary.
 
 Open the page and confirm:
@@ -267,7 +268,7 @@ Open the page and confirm:
 4. A normal booking can be created and an overlapping booking is rejected.
 5. Tool quotas and maximum durations are enforced.
 
-On a fresh database there are no tools. The first TRSys administrator must open
+On a fresh database there are no tools. The first TRCal administrator must open
 **Settings** and create at least one tool before making a reservation.
 
 If old JavaScript or CSS is still shown after an update, use DokuWiki's purge
@@ -318,7 +319,7 @@ Then update and redeploy:
 
 ```sh
 sudo env -u LD_LIBRARY_PATH \
-  git -C "$TRSYS_SOURCE" pull --ff-only
+  git -C "$TRCAL_SOURCE" pull --ff-only
 sudo rsync -a --delete --delete-excluded \
   --exclude='.git*' \
   --exclude='.cursor/' \
@@ -326,7 +327,7 @@ sudo rsync -a --delete --delete-excluded \
   --exclude='README.md' \
   --exclude='SECURITY.md' \
   --exclude='tests/' \
-  "$TRSYS_SOURCE/" \
+  "$TRCAL_SOURCE/" \
   "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/"
 sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT="$DOKUWIKI_ROOT" \
   php "$DOKUWIKI_ROOT/lib/plugins/instrumentbooking/bin/install.php" \
@@ -387,7 +388,7 @@ only on a development machine with Node.js installed.
 
 ## Administrator List CLI Reference
 
-TRSys administrators are stored in SQLite's `plugin_admins` table and are
+TRCal administrators are stored in SQLite's `plugin_admins` table and are
 independent of DokuWiki groups and DokuWiki superuser settings.
 
 Initialize the first administrator during installation:
@@ -399,11 +400,11 @@ sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT=/var/www/dokuwiki \
   --config=/var/www/dokuwiki/conf/instrumentbooking.local.php
 ```
 
-Add subsequent administrators from **TRSys → Settings → Administrators**.
+Add subsequent administrators from **TRCal → Settings → Administrators**.
 Only existing DokuWiki users can be selected, and administrators are added one
 at a time.
 
-List the current TRSys administrators:
+List the current TRCal administrators:
 
 ```sh
 sudo -u www-data env -u LD_LIBRARY_PATH DOKUWIKI_ROOT=/var/www/dokuwiki \
@@ -423,5 +424,5 @@ sudo -u www-data env -u LD_LIBRARY_PATH php \
 
 The CLI refuses to revoke the last administrator. To replace the only
 administrator, first use the Settings panel to add the successor, then run
-`revoke` for the old username. These commands change only TRSys permissions;
+`revoke` for the old username. These commands change only TRCal permissions;
 they never create, modify, or delete DokuWiki accounts.
