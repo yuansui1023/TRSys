@@ -109,6 +109,9 @@ check('TRCal product branding is current', function () {
 check('header shows short commit SHA and GitHub repository without branch label', function () {
     assert.ok(script.indexOf("root.getAttribute('data-build-commit')") !== -1);
     assert.ok(script.indexOf("root.getAttribute('data-repository-url')") !== -1);
+    var shellMount = script.indexOf('root.appendChild(buildShell(state));');
+    var buildRefresh = script.indexOf('refreshBuildLabel(state);');
+    assert.ok(shellMount !== -1 && buildRefresh > shellMount);
     assert.ok(script.indexOf("commit.slice(0, 7)") !== -1);
     assert.ok(script.indexOf("repositoryUrl + '/commit/' + commit") !== -1);
     assert.ok(script.indexOf("repositoryUrl.replace(/^https:\\/\\//, '')") !== -1);

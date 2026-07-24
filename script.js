@@ -65,6 +65,7 @@
         root.textContent = '';
         removeDeleteConfirmPortals();
         root.appendChild(buildShell(state));
+        refreshBuildLabel(state);
         mountDeleteConfirmDialog(state);
         fetchInstruments(state).then(function (data) {
             updateSecurityToken(state, data);
@@ -118,7 +119,6 @@
         var buildMeta = el('span', 'ib-app-build');
         buildMeta.hidden = true;
         titleRow.appendChild(buildMeta);
-        refreshBuildLabel(state);
         var subtitle = el('p', 'ib-app-subtitle');
         subtitle.textContent = 'Tool Reservation Calendar';
         identity.appendChild(titleRow);
