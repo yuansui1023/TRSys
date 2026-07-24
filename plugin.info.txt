@@ -4,4 +4,4 @@ email  yuansui@berkeley.edu
 date   2026-07-24
 name   TRCal
 desc   Lightweight instrument booking system backed by DokuWiki users and SQLite
-url    https://github.com/yuansui1023/TRSys
+url    https://github.com/yuansui1023/TRCal

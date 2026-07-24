@@ -1835,12 +1835,12 @@ test('git build metadata reads a loose branch ref and normalizes SSH origin', fu
     file_put_contents($root . '/.git/refs/heads/main', $commit . "\n");
     file_put_contents(
         $root . '/.git/config',
-        "[remote \"origin\"]\n\turl = git@github.com:yuansui1023/TRSys.git\n"
+        "[remote \"origin\"]\n\turl = git@github.com:yuansui1023/TRCal.git\n"
     );
 
     $meta = $h->gitBuildMetaFromSource($root);
     assert_true($meta['commit'] === $commit);
-    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRSys');
+    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRCal');
     assert_true(!array_key_exists('branch', $meta));
 
     @unlink($root . '/.git/refs/heads/main');
@@ -1861,12 +1861,12 @@ test('git build metadata reads packed refs and HTTPS origin', function () {
     file_put_contents($root . '/.git/packed-refs', "# pack-refs\n" . $commit . " refs/heads/main\n");
     file_put_contents(
         $root . '/.git/config',
-        "[remote \"origin\"]\n\turl = https://github.com/yuansui1023/TRSys.git\n"
+        "[remote \"origin\"]\n\turl = https://github.com/yuansui1023/TRCal.git\n"
     );
 
     $meta = $h->gitBuildMetaFromSource($root);
     assert_true($meta['commit'] === $commit);
-    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRSys');
+    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRCal');
 
     @unlink($root . '/.git/HEAD');
     @unlink($root . '/.git/packed-refs');
@@ -1882,12 +1882,12 @@ test('build metadata is written beside SQLite and read without exposing its path
     mkdir($root . '/plugin');
     file_put_contents(
         $root . '/plugin/plugin.info.txt',
-        "url https://github.com/yuansui1023/TRSys\n"
+        "url https://github.com/yuansui1023/TRCal\n"
     );
     $config = ['database_path' => $root . '/data/bookings.sqlite3'];
     $expected = [
         'commit' => str_repeat('c', 40),
-        'repositoryUrl' => 'https://github.com/yuansui1023/TRSys',
+        'repositoryUrl' => 'https://github.com/yuansui1023/TRCal',
     ];
 
     $path = $h->writePluginBuildMeta($config, $expected);
@@ -1912,13 +1912,13 @@ test('invalid build metadata falls back to the plugin GitHub URL', function () {
     file_put_contents($root . '/data/build-info.json', "{\"commit\":\"bad\"}\n");
     file_put_contents(
         $root . '/plugin/plugin.info.txt',
-        "url https://github.com/yuansui1023/TRSys\n"
+        "url https://github.com/yuansui1023/TRCal\n"
     );
     $config = ['database_path' => $root . '/data/bookings.sqlite3'];
 
     $meta = $h->pluginBuildMeta($config, $root . '/plugin');
     assert_true($meta['commit'] === null);
-    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRSys');
+    assert_true($meta['repositoryUrl'] === 'https://github.com/yuansui1023/TRCal');
     assert_error('INVALID_INPUT', function () use ($h, $config) {
         $h->writePluginBuildMeta($config, [
             'commit' => 'bad',

@@ -110,10 +110,10 @@ The DokuWiki root is the directory containing `doku.php`.
 
 ```sh
 export DOKUWIKI_ROOT=/var/www/dokuwiki
-export TRCAL_SOURCE=/opt/TRSys
+export TRCAL_SOURCE=/opt/TRCal
 test -f "$DOKUWIKI_ROOT/doku.php"
 sudo env -u LD_LIBRARY_PATH git clone --branch main --single-branch \
-  https://github.com/yuansui1023/TRSys.git "$TRCAL_SOURCE"
+  https://github.com/yuansui1023/TRCal.git "$TRCAL_SOURCE"
 ```
 
 For an upgrade, use the existing source checkout and run `git pull` there

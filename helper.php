@@ -508,8 +508,8 @@ class helper_plugin_instrumentbooking extends DokuWiki_Plugin
             throw new InstrumentBookingException('INVALID_INPUT', 'The Git commit identifier is invalid.', 400);
         }
 
-        $repositoryUrl = $this->gitOriginRepositoryUrl($gitDir)
-            ?? $this->pluginInfoRepositoryUrl($root);
+        $repositoryUrl = $this->pluginInfoRepositoryUrl($root)
+            ?? $this->gitOriginRepositoryUrl($gitDir);
         if ($repositoryUrl === null) {
             throw new InstrumentBookingException('INVALID_INPUT', 'The GitHub repository URL could not be determined.', 400);
         }
